@@ -3,6 +3,7 @@ from . import views
 
 urlpatterns = [
     path('', views.index_view, name='index'),
+    path('logo-goodyear.png', views.logo_view, name='logo_view'),
     path('api/drawer-structure/', views.api_drawer_structure, name='api_drawer_structure'),
     path('api/carts/', views.api_carts_list_create, name='api_carts_list_create'),
     path('api/carts/<str:cart_id>/', views.api_cart_detail_update_delete, name='api_cart_detail_update_delete'),

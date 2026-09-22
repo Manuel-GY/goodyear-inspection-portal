@@ -1,61 +1,98 @@
 from django.shortcuts import render, get_object_or_404
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, FileResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.db import transaction
+from django.db.models import Count, Q
+from django.conf import settings
 from .models import ToolCart, DrawerTool, Inspection5S, InspectionMissingItem
 import json
+import os
+import io
+import csv
+
+try:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    HAS_OPENPYXL = True
+except ImportError:
+    HAS_OPENPYXL = False
+
 
 def index_view(request):
     """Renderiza el portal de inspección 5S."""
     return render(request, 'index.html')
+
+
+def logo_view(request):
+    """Sirve directamente el logo oficial de Goodyear."""
+    logo_path = settings.BASE_DIR / 'static' / 'logo-goodyear.png'
+    if not os.path.exists(logo_path):
+        logo_path = settings.BASE_DIR / 'logo-goodyear.png'
+    if os.path.exists(logo_path):
+        return FileResponse(open(logo_path, 'rb'), content_type='image/png')
+    return HttpResponse(status=404)
+
 
 def api_drawer_structure(request):
     """Devuelve la estructura de herramientas estándar por categoría (TURNO, MECANICO, ELECTRICO, MECATRONICO)."""
     from .management.commands.seed_data import DRAWER_STRUCTURE
     return JsonResponse({"status": "success", "drawers": DRAWER_STRUCTURE})
 
+
 @csrf_exempt
 def api_carts_list_create(request):
     """
     GET: Listado completo de carros de herramientas con conteos y gavetas.
-    POST: Creación de un nuevo carro de herramientas.
+    POST: Creación de un nuevo carro de herramientas (transaccional).
     """
     if request.method == 'GET':
-        carts = ToolCart.objects.all()
-        data = {}
-        for c in carts:
-            drawer_photos = {}
-            if c.fotos_gavetas_json:
-                try:
-                    drawer_photos = json.loads(c.fotos_gavetas_json)
-                except Exception:
-                    drawer_photos = {}
+        try:
+            carts = ToolCart.objects.all().order_by('codigo_carro')
+            data = {}
+            for c in carts:
+                drawer_photos = {}
+                if c.fotos_gavetas_json:
+                    try:
+                        drawer_photos = json.loads(c.fotos_gavetas_json)
+                    except Exception:
+                        drawer_photos = {}
 
-            data[c.codigo_carro] = {
-                "name": c.nombre_carro,
-                "category": c.categoria,
-                "type": c.especialidad_tipo or f"Carro {c.categoria}",
-                "area": c.area,
-                "toolsCount": c.total_herramientas,
-                "status": c.estado_general,
-                "supervisor": c.supervisor_responsable,
-                "locationDetails": c.ubicacion_especifica,
-                "locationPhoto": c.foto_ubicacion_url,
-                "drawerPhotos": drawer_photos
-            }
-        return JsonResponse({"status": "success", "count": len(data), "carts": data})
+                data[c.codigo_carro] = {
+                    "name": c.nombre_carro,
+                    "category": c.categoria,
+                    "type": c.especialidad_tipo or f"Carro {c.categoria}",
+                    "area": c.area,
+                    "toolsCount": c.total_herramientas,
+                    "status": c.estado_general,
+                    "supervisor": c.supervisor_responsable,
+                    "locationDetails": c.ubicacion_especifica,
+                    "locationPhoto": c.foto_ubicacion_url,
+                    "drawerPhotos": drawer_photos
+                }
+            return JsonResponse({"status": "success", "count": len(data), "carts": data})
+        except Exception as e:
+            return JsonResponse({"status": "error", "message": f"Error al consultar carros: {str(e)}"}, status=500)
 
     elif request.method == 'POST':
         try:
-            body = json.loads(request.body.decode('utf-8'))
-            cart_id = body.get('codigo_carro', '').strip().upper()
-            name = body.get('nombre_carro', '').strip()
-            category = body.get('categoria', 'TURNO').strip()
-            area = body.get('area', 'Planta Goodyear').strip()
-            supervisor = body.get('supervisor_responsable', 'Juanito Arias').strip()
-            location = body.get('ubicacion_especifica', 'Bahía de Mantenimiento').strip()
+            try:
+                body = json.loads(request.body.decode('utf-8'))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return JsonResponse({"status": "error", "message": "Cuerpo JSON inválido o malformado."}, status=400)
+
+            cart_id = str(body.get('codigo_carro', '')).strip().upper()
+            name = str(body.get('nombre_carro', '')).strip()
+            category = str(body.get('categoria', 'TURNO')).strip().upper()
+            area = str(body.get('area', 'Planta Goodyear')).strip()
+            supervisor = str(body.get('supervisor_responsable', 'Juanito Arias')).strip()
+            location = str(body.get('ubicacion_especifica', 'Bahía de Mantenimiento')).strip()
 
             if not cart_id or not name:
                 return JsonResponse({"status": "error", "message": "Código y Nombre del carro son obligatorios."}, status=400)
+
+            valid_categories = ['TURNO', 'MECANICO', 'ELECTRICO', 'MECATRONICO']
+            if category not in valid_categories:
+                category = 'TURNO'
 
             if ToolCart.objects.filter(codigo_carro=cart_id).exists():
                 return JsonResponse({"status": "error", "message": f"Ya existe un carro con código {cart_id}."}, status=400)
@@ -70,18 +107,19 @@ def api_carts_list_create(request):
             elif category == 'MECATRONICO':
                 cart_type = "Carro Mecatrónico / Automatización"
 
-            cart = ToolCart.objects.create(
-                codigo_carro=cart_id,
-                nombre_carro=name,
-                categoria=category,
-                especialidad_tipo=cart_type,
-                area=area,
-                supervisor_responsable=supervisor,
-                ubicacion_especifica=location,
-                total_herramientas=0,
-                estado_general="Sin Configurar",
-                fotos_gavetas_json="{}"
-            )
+            with transaction.atomic():
+                cart = ToolCart.objects.create(
+                    codigo_carro=cart_id,
+                    nombre_carro=name,
+                    categoria=category,
+                    especialidad_tipo=cart_type,
+                    area=area,
+                    supervisor_responsable=supervisor,
+                    ubicacion_especifica=location,
+                    total_herramientas=0,
+                    estado_general="Sin Configurar",
+                    fotos_gavetas_json="{}"
+                )
 
             return JsonResponse({
                 "status": "success",
@@ -96,7 +134,7 @@ def api_carts_list_create(request):
             }, status=201)
 
         except Exception as e:
-            return JsonResponse({"status": "error", "message": str(e)}, status=500)
+            return JsonResponse({"status": "error", "message": f"Error al crear carro: {str(e)}"}, status=500)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
@@ -105,14 +143,17 @@ def api_carts_list_create(request):
 def api_cart_detail_update_delete(request, cart_id):
     """
     GET: Detalle de un carro con todas sus herramientas organizadas por gaveta (1 a 5).
-    PUT/PATCH: Actualización de datos generales, fotos o ubicación del carro.
-    DELETE: Eliminación del carro de la base de datos.
+    PUT/PATCH: Actualización transaccional de datos generales, fotos o ubicación del carro.
+    DELETE: Eliminación transaccional del carro de la base de datos.
     """
-    cart = get_object_or_404(ToolCart, codigo_carro=cart_id.upper())
+    clean_code = str(cart_id).strip().upper()
+    cart = ToolCart.objects.filter(codigo_carro=clean_code).prefetch_related('tools').first()
+    if not cart:
+        return JsonResponse({"status": "error", "message": f"Carro con código {clean_code} no encontrado."}, status=404)
 
     if request.method == 'GET':
         drawers = {1: [], 2: [], 3: [], 4: [], 5: []}
-        for tool in cart.tools.all():
+        for tool in cart.tools.all().order_by('numero_gaveta', 'orden_posicion'):
             if tool.numero_gaveta in drawers:
                 drawers[tool.numero_gaveta].append(tool.nombre_herramienta)
 
@@ -143,34 +184,46 @@ def api_cart_detail_update_delete(request, cart_id):
 
     elif request.method in ['PUT', 'PATCH']:
         try:
-            body = json.loads(request.body.decode('utf-8'))
-            if 'nombre_carro' in body:
-                cart.nombre_carro = body['nombre_carro'].strip()
-            if 'categoria' in body:
-                cart.categoria = body['categoria'].strip()
-            if 'area' in body:
-                cart.area = body['area'].strip()
-            if 'supervisor_responsable' in body:
-                cart.supervisor_responsable = body['supervisor_responsable'].strip()
-            if 'ubicacion_especifica' in body:
-                cart.ubicacion_especifica = body['ubicacion_especifica'].strip()
-            if 'foto_ubicacion_url' in body:
-                cart.foto_ubicacion_url = body['foto_ubicacion_url']
-            if 'drawerPhotos' in body:
-                cart.fotos_gavetas_json = json.dumps(body['drawerPhotos'])
-            if 'estado_general' in body:
-                cart.estado_general = body['estado_general']
+            try:
+                body = json.loads(request.body.decode('utf-8'))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return JsonResponse({"status": "error", "message": "Cuerpo JSON inválido o malformado."}, status=400)
 
-            cart.save()
+            with transaction.atomic():
+                if 'nombre_carro' in body and body['nombre_carro'] is not None:
+                    cart.nombre_carro = str(body['nombre_carro']).strip()
+                if 'categoria' in body and body['categoria'] is not None:
+                    cat = str(body['categoria']).strip().upper()
+                    if cat in ['TURNO', 'MECANICO', 'ELECTRICO', 'MECATRONICO']:
+                        cart.categoria = cat
+                if 'area' in body and body['area'] is not None:
+                    cart.area = str(body['area']).strip()
+                if 'supervisor_responsable' in body and body['supervisor_responsable'] is not None:
+                    cart.supervisor_responsable = str(body['supervisor_responsable']).strip()
+                if 'ubicacion_especifica' in body and body['ubicacion_especifica'] is not None:
+                    cart.ubicacion_especifica = str(body['ubicacion_especifica']).strip()
+                if 'foto_ubicacion_url' in body:
+                    cart.foto_ubicacion_url = body['foto_ubicacion_url']
+                if 'drawerPhotos' in body:
+                    cart.fotos_gavetas_json = json.dumps(body['drawerPhotos'])
+                if 'estado_general' in body and body['estado_general'] is not None:
+                    cart.estado_general = str(body['estado_general']).strip()
+
+                cart.save()
+
             return JsonResponse({"status": "success", "message": f"Carro {cart.codigo_carro} actualizado correctamente."})
         except Exception as e:
-            return JsonResponse({"status": "error", "message": str(e)}, status=500)
+            return JsonResponse({"status": "error", "message": f"Error al actualizar carro: {str(e)}"}, status=500)
 
     elif request.method == 'DELETE':
-        code = cart.codigo_carro
-        cart_name = cart.nombre_carro
-        cart.delete()
-        return JsonResponse({"status": "success", "message": f"Carro {cart_name} ({code}) eliminado correctamente."})
+        try:
+            with transaction.atomic():
+                code = cart.codigo_carro
+                cart_name = cart.nombre_carro
+                cart.delete()
+            return JsonResponse({"status": "success", "message": f"Carro {cart_name} ({code}) eliminado correctamente."})
+        except Exception as e:
+            return JsonResponse({"status": "error", "message": f"Error al eliminar carro: {str(e)}"}, status=500)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
@@ -178,37 +231,58 @@ def api_cart_detail_update_delete(request, cart_id):
 @csrf_exempt
 def api_cart_drawer_tools(request, cart_id, drawer_num):
     """
-    POST: Actualiza el listado completo de herramientas de una gaveta específica (1 a 5).
+    POST: Actualiza el listado completo de herramientas de una gaveta específica (1 a 5) de forma atómica.
     """
     if request.method == 'POST':
-        cart = get_object_or_404(ToolCart, codigo_carro=cart_id.upper())
+        if drawer_num < 1 or drawer_num > 5:
+            return JsonResponse({"status": "error", "message": f"Número de gaveta inválido ({drawer_num}). Debe ser entre 1 y 5."}, status=400)
+
+        clean_code = str(cart_id).strip().upper()
+        cart = ToolCart.objects.filter(codigo_carro=clean_code).first()
+        if not cart:
+            return JsonResponse({"status": "error", "message": f"Carro {clean_code} no encontrado."}, status=404)
+
         try:
-            body = json.loads(request.body.decode('utf-8'))
+            try:
+                body = json.loads(request.body.decode('utf-8'))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return JsonResponse({"status": "error", "message": "Cuerpo JSON inválido o malformado."}, status=400)
+
             tools_list = body.get('tools', [])
+            if not isinstance(tools_list, list):
+                return JsonResponse({"status": "error", "message": "El campo 'tools' debe ser una lista."}, status=400)
 
-            # Eliminar herramientas actuales de esta gaveta
-            cart.tools.filter(numero_gaveta=drawer_num).delete()
+            with transaction.atomic():
+                # Eliminar herramientas actuales de esta gaveta
+                cart.tools.filter(numero_gaveta=drawer_num).delete()
 
-            # Insertar las nuevas herramientas
-            for idx, tool_name in enumerate(tools_list, start=1):
-                clean_name = str(tool_name).strip()
-                if clean_name:
-                    DrawerTool.objects.create(
-                        cart=cart,
-                        numero_gaveta=drawer_num,
-                        nombre_herramienta=clean_name,
-                        orden_posicion=idx
-                    )
+                # Preparar e insertar en masa las nuevas herramientas
+                tools_to_create = []
+                for idx, tool_name in enumerate(tools_list, start=1):
+                    clean_name = str(tool_name).strip()
+                    if clean_name:
+                        tools_to_create.append(
+                            DrawerTool(
+                                cart=cart,
+                                numero_gaveta=drawer_num,
+                                nombre_herramienta=clean_name,
+                                orden_posicion=idx
+                            )
+                        )
 
-            cart.recalculate_tool_count()
+                if tools_to_create:
+                    DrawerTool.objects.bulk_create(tools_to_create)
+
+                cart.recalculate_tool_count()
 
             return JsonResponse({
                 "status": "success",
-                "message": f"Gaveta {drawer_num} del carro {cart.codigo_carro} actualizada con {len(tools_list)} herramientas.",
-                "total_herramientas": cart.total_herramientas
+                "message": f"Gaveta {drawer_num} del carro {cart.codigo_carro} actualizada con {len(tools_to_create)} herramientas.",
+                "total_herramientas": cart.total_herramientas,
+                "estado_general": cart.estado_general
             })
         except Exception as e:
-            return JsonResponse({"status": "error", "message": str(e)}, status=500)
+            return JsonResponse({"status": "error", "message": f"Error al guardar herramientas: {str(e)}"}, status=500)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
@@ -216,87 +290,119 @@ def api_cart_drawer_tools(request, cart_id, drawer_num):
 @csrf_exempt
 def api_inspections_list_create(request):
     """
-    GET: Listado histórico de inspecciones 5S realizadas.
-    POST: Registro de una nueva inspección 5S (con firmas digitales y faltantes).
+    GET: Listado histórico de inspecciones 5S realizadas (optimizado con select_related).
+    POST: Registro transaccional de una nueva inspección 5S (con firmas digitales y faltantes).
     """
     if request.method == 'GET':
-        inspections = Inspection5S.objects.all().order_by('-fecha_inspeccion')
-        data = []
-        for insp in inspections:
-            data.append({
-                "folio": insp.folio,
-                "date": insp.fecha_inspeccion.strftime('%d/%m/%Y %H:%M'),
-                "cartId": insp.codigo_carro,
-                "cartName": insp.cart.nombre_carro if insp.cart else insp.codigo_carro,
-                "cartArea": insp.area,
-                "auditor": insp.nombre_auditor,
-                "responsible": insp.responsable_carro_auditado,
-                "supervisor": insp.supervisor_responsable,
-                "status": insp.estado_dictamen,
-                "totalChecked": insp.total_verificadas,
-                "totalTools": insp.total_herramientas,
-                "missingCount": insp.total_herramientas - insp.total_verificadas if (insp.total_herramientas > insp.total_verificadas) else 0,
-                "missingDetails": insp.detalles_faltantes,
-                "comments": insp.comentarios_auditor,
-                "auditorSign": insp.firma_auditor_base64,
-                "respSign": insp.firma_responsable_base64,
-                "ldapAuditor": insp.ldap_auditor_id,
-                "ldapResp": insp.ldap_responsable_id
-            })
-        return JsonResponse({"status": "success", "count": len(data), "inspections": data})
+        try:
+            inspections = Inspection5S.objects.select_related('cart').prefetch_related('missing_items').all().order_by('-fecha_inspeccion')
+            data = []
+            for insp in inspections:
+                data.append({
+                    "folio": insp.folio,
+                    "date": insp.fecha_inspeccion.strftime('%d/%m/%Y %H:%M'),
+                    "cartId": insp.codigo_carro,
+                    "cartName": insp.cart.nombre_carro if insp.cart else insp.codigo_carro,
+                    "cartArea": insp.area,
+                    "auditor": insp.nombre_auditor,
+                    "responsible": insp.responsable_carro_auditado,
+                    "supervisor": insp.supervisor_responsable,
+                    "status": insp.estado_dictamen,
+                    "totalChecked": insp.total_verificadas,
+                    "totalTools": insp.total_herramientas,
+                    "missingCount": max(0, insp.total_herramientas - insp.total_verificadas) if (insp.total_herramientas > insp.total_verificadas) else 0,
+                    "missingDetails": insp.detalles_faltantes,
+                    "comments": insp.comentarios_auditor,
+                    "auditorSign": insp.firma_auditor_base64,
+                    "respSign": insp.firma_responsable_base64,
+                    "ldapAuditor": insp.ldap_auditor_id,
+                    "ldapResp": insp.ldap_responsable_id
+                })
+            return JsonResponse({"status": "success", "count": len(data), "inspections": data})
+        except Exception as e:
+            return JsonResponse({"status": "error", "message": f"Error al obtener inspecciones: {str(e)}"}, status=500)
 
     elif request.method == 'POST':
         try:
-            body = json.loads(request.body.decode('utf-8'))
-            cart_code = body.get('cartId', '').strip().upper()
+            try:
+                body = json.loads(request.body.decode('utf-8'))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return JsonResponse({"status": "error", "message": "Cuerpo JSON inválido o malformado."}, status=400)
+
+            cart_code = str(body.get('cartId', '')).strip().upper()
             cart = ToolCart.objects.filter(codigo_carro=cart_code).first()
 
             folio = body.get('folio')
-            if not folio:
+            if not folio or not str(folio).strip():
                 from datetime import datetime
                 folio = f"INS-GY-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            else:
+                folio = str(folio).strip()
 
-            auditor = body.get('auditor', 'Inspector Goodyear').strip()
-            responsible = body.get('responsible', 'Mecánico de Turno').strip()
-            supervisor = body.get('supervisor', cart.supervisor_responsable if cart else 'Juanito Arias').strip()
-            area = body.get('cartArea', cart.area if cart else 'Planta Goodyear').strip()
-            status = body.get('status', 'CONFORME 100%').strip()
-            total_checked = int(body.get('totalChecked', 0))
-            total_tools = int(body.get('totalTools', 0))
-            missing_details = body.get('missingDetails', '')
-            comments = body.get('comments', '')
+            auditor = str(body.get('auditor', 'Inspector Goodyear')).strip()
+            responsible = str(body.get('responsible', 'Mecánico de Turno')).strip()
+            supervisor = str(body.get('supervisor', cart.supervisor_responsable if cart else 'Juanito Arias')).strip()
+            area = str(body.get('cartArea', cart.area if cart else 'Planta Goodyear')).strip()
+            status = str(body.get('status', 'CONFORME 100%')).strip()
+
+            try:
+                total_checked = int(body.get('totalChecked', 0))
+            except (ValueError, TypeError):
+                total_checked = 0
+
+            try:
+                total_tools = int(body.get('totalTools', 0))
+            except (ValueError, TypeError):
+                total_tools = 0
+
+            missing_details = str(body.get('missingDetails', '')).strip()
+            comments = str(body.get('comments', '')).strip()
             auditor_sign = body.get('auditorSign')
             resp_sign = body.get('respSign')
-            ldap_auditor = body.get('ldapAuditor', '')
-            ldap_resp = body.get('ldapResp', '')
+            ldap_auditor = str(body.get('ldapAuditor', '')).strip()
+            ldap_resp = str(body.get('ldapResp', '')).strip()
 
-            insp = Inspection5S.objects.create(
-                folio=folio,
-                cart=cart,
-                codigo_carro=cart_code,
-                nombre_auditor=auditor,
-                responsable_carro_auditado=responsible,
-                supervisor_responsable=supervisor,
-                area=area,
-                estado_dictamen=status,
-                total_verificadas=total_checked,
-                total_herramientas=total_tools,
-                detalles_faltantes=missing_details,
-                comentarios_auditor=comments,
-                firma_auditor_base64=auditor_sign,
-                firma_responsable_base64=resp_sign,
-                ldap_auditor_id=ldap_auditor,
-                ldap_responsable_id=ldap_resp
-            )
-
-            # Registrar faltantes si vienen desglosados
-            missing_items = body.get('missingItemsList', [])
-            for item in missing_items:
-                InspectionMissingItem.objects.create(
-                    inspection=insp,
-                    numero_gaveta=int(item.get('drawer', 1)),
-                    nombre_herramienta_faltante=str(item.get('tool', '')).strip()
+            with transaction.atomic():
+                insp = Inspection5S.objects.create(
+                    folio=folio,
+                    cart=cart,
+                    codigo_carro=cart_code,
+                    nombre_auditor=auditor,
+                    responsable_carro_auditado=responsible,
+                    supervisor_responsable=supervisor,
+                    area=area,
+                    estado_dictamen=status,
+                    total_verificadas=total_checked,
+                    total_herramientas=total_tools,
+                    detalles_faltantes=missing_details,
+                    comentarios_auditor=comments,
+                    firma_auditor_base64=auditor_sign,
+                    firma_responsable_base64=resp_sign,
+                    ldap_auditor_id=ldap_auditor,
+                    ldap_responsable_id=ldap_resp
                 )
+
+                # Registrar faltantes si vienen desglosados
+                missing_items = body.get('missingItemsList', [])
+                if isinstance(missing_items, list) and missing_items:
+                    missing_objs = []
+                    for item in missing_items:
+                        if isinstance(item, dict):
+                            try:
+                                d_num = int(item.get('drawer', 1))
+                            except (ValueError, TypeError):
+                                d_num = 1
+                            t_name = str(item.get('tool', '')).strip()
+                            if t_name:
+                                missing_objs.append(
+                                    InspectionMissingItem(
+                                        inspection=insp,
+                                        numero_gaveta=d_num,
+                                        nombre_herramienta_faltante=t_name
+                                    )
+                                )
+                    if missing_objs:
+                        InspectionMissingItem.objects.bulk_create(missing_objs)
 
             return JsonResponse({
                 "status": "success",
@@ -305,67 +411,75 @@ def api_inspections_list_create(request):
             }, status=201)
 
         except Exception as e:
-            return JsonResponse({"status": "error", "message": str(e)}, status=500)
+            return JsonResponse({"status": "error", "message": f"Error al registrar inspección: {str(e)}"}, status=500)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
 
 def api_dashboard_stats(request):
     """
-    GET: Estadísticas consolidadas para KPIs y gráficos del Dashboard.
+    GET: Estadísticas consolidadas para KPIs y gráficos del Dashboard (optimizado con agregaciones SQL).
     """
-    total_carts = ToolCart.objects.count()
-    total_audits = Inspection5S.objects.count()
+    try:
+        total_carts = ToolCart.objects.count()
+        total_audits = Inspection5S.objects.count()
 
-    compliant_count = Inspection5S.objects.filter(
-        estado_dictamen__icontains='100%'
-    ).count() | Inspection5S.objects.filter(
-        estado_dictamen__icontains='CONFORME'
-    ).count()
+        # Filtrar conformes utilizando Q or
+        compliant_count = Inspection5S.objects.filter(
+            Q(estado_dictamen__icontains='100%') | Q(estado_dictamen__icontains='CONFORME')
+        ).count()
 
-    missing_count = total_audits - compliant_count
+        missing_count = max(0, total_audits - compliant_count)
 
-    # Distribución por áreas
-    areas = {}
-    for c in ToolCart.objects.all():
-        area_key = c.area or 'Planta Goodyear'
-        if area_key not in areas:
-            areas[area_key] = {"carts": 0, "audits": 0}
-        areas[area_key]["carts"] += 1
+        # Distribución por áreas usando agregación SQL directa
+        areas = {}
+        cart_areas = ToolCart.objects.values('area').annotate(carts_count=Count('id'))
+        for item in cart_areas:
+            area_name = item['area'] or 'Planta Goodyear'
+            if area_name not in areas:
+                areas[area_name] = {"carts": 0, "audits": 0}
+            areas[area_name]["carts"] = item['carts_count']
 
-    for insp in Inspection5S.objects.all():
-        area_key = insp.area or 'Planta Goodyear'
-        if area_key not in areas:
-            areas[area_key] = {"carts": 0, "audits": 0}
-        areas[area_key]["audits"] += 1
+        audit_areas = Inspection5S.objects.values('area').annotate(audits_count=Count('id'))
+        for item in audit_areas:
+            area_name = item['area'] or 'Planta Goodyear'
+            if area_name not in areas:
+                areas[area_name] = {"carts": 0, "audits": 0}
+            areas[area_name]["audits"] = item['audits_count']
 
-    return JsonResponse({
-        "status": "success",
-        "totalCarts": total_carts,
-        "totalAudits": total_audits,
-        "compliantAudits": compliant_count,
-        "missingAudits": max(0, missing_count),
-        "passRate": round((compliant_count / total_audits) * 100) if total_audits > 0 else 0,
-        "areas": areas
-    })
+        pass_rate = round((compliant_count / total_audits) * 100) if total_audits > 0 else 0
+
+        return JsonResponse({
+            "status": "success",
+            "totalCarts": total_carts,
+            "totalAudits": total_audits,
+            "compliantAudits": compliant_count,
+            "missingAudits": missing_count,
+            "passRate": pass_rate,
+            "areas": areas
+        })
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": f"Error al calcular estadísticas: {str(e)}"}, status=500)
 
 
 @csrf_exempt
 def api_reset_factory(request):
     """
-    POST: Restablece todos los carros y herramientas al estado inicial de fábrica (28 carros).
+    POST: Restablece todos los carros y herramientas al estado inicial de fábrica (28 carros oficiales).
     """
     if request.method == 'POST':
         try:
-            ToolCart.objects.all().delete()
-            from django.core.management import call_command
-            call_command('seed_data')
+            with transaction.atomic():
+                ToolCart.objects.all().delete()
+                from django.core.management import call_command
+                call_command('seed_data')
+
             return JsonResponse({
                 "status": "success",
-                "message": "Base de datos restablecida al estándar oficial de fábrica Goodyear (28 carros)."
+                "message": f"Base de datos restablecida al estándar oficial de fábrica Goodyear ({ToolCart.objects.count()} carros cargados)."
             })
         except Exception as e:
-            return JsonResponse({"status": "error", "message": str(e)}, status=500)
+            return JsonResponse({"status": "error", "message": f"Error al restablecer valores de fábrica: {str(e)}"}, status=500)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
@@ -374,101 +488,103 @@ def api_download_excel_template(request):
     """
     GET: Genera y descarga un archivo Excel (.xlsx) con la plantilla oficial Goodyear.
     """
-    import io
-    import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    if not HAS_OPENPYXL:
+        return JsonResponse({"status": "error", "message": "openpyxl no está instalado en el servidor."}, status=500)
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Plantilla Carros 5S"
+    try:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Plantilla Carros 5S"
 
-    headers = [
-        "codigo_carro",
-        "nombre_carro",
-        "categoria",
-        "area",
-        "supervisor",
-        "ubicacion_especifica",
-        "gaveta_1_herramientas",
-        "gaveta_2_herramientas",
-        "gaveta_3_herramientas",
-        "gaveta_4_herramientas",
-        "gaveta_5_herramientas"
-    ]
-    ws.append(headers)
-
-    header_fill = PatternFill(start_color="0B1D45", end_color="0B1D45", fill_type="solid")
-    header_font = Font(name="Segoe UI", size=11, bold=True, color="FBBD00")
-    thin_border = Border(
-        left=Side(style='thin', color='CBD5E1'),
-        right=Side(style='thin', color='CBD5E1'),
-        top=Side(style='thin', color='CBD5E1'),
-        bottom=Side(style='thin', color='CBD5E1')
-    )
-
-    for col_num, cell in enumerate(ws[1], 1):
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-    sample_rows = [
-        [
-            "CH-ASRS-TA",
-            "Carro Turno A (ASRS)",
-            "TURNO",
-            "Área ASRS",
-            "Juanito Arias",
-            "Pasillo Principal Bahía 1",
-            "Juego Llaves Combinadas 8-24mm, Chicharra 1/2\", Dados de Impacto 17-21mm",
-            "Destornillador Paleta 6x100mm, Destornillador Cruz PH2, Alicate Universal 8\"",
-            "Martillo de Bola 500g, Martillo de Goma, Cincel Plano, Cepillo de Acero",
-            "Cinta Métrica 5m, Flexómetro de Trabajo, Manguera Neumática, Pistola de Aire",
-            "Candados LOTO Rojos (2 un), Pinza Bloqueo, Tarjeta 5S, Gafas de Seguridad"
-        ],
-        [
-            "CH-CST-M01",
-            "Carro Mecánico 01 (Construcción)",
-            "MECANICO",
-            "Área Construcción",
-            "Juanito Arias",
-            "Bahía Mantenimiento Construcción",
-            "Juego Dados 1/2\" Heavy Duty (8-32mm), Chicharra Pesada 1/2\", Palanca de Fuerza",
-            "Extractor de Rodamientos 3 Patas, Llaves Corona 10-24mm, Llave Ajustable 12\"",
-            "Arco de Sierra Profesional, Cinceles Planos, Limas de Ajuste, Llave Stilson 14\"",
-            "Pistola Neumática de Impacto 1/2\", Manómetro Digital, Aceite Lubricante",
-            "Torquímetro Calibrado 1/2\" (20-200 Nm), Pie de Metro Digital, Kit LOTO"
+        headers = [
+            "codigo_carro",
+            "nombre_carro",
+            "categoria",
+            "area",
+            "supervisor",
+            "ubicacion_especifica",
+            "gaveta_1_herramientas",
+            "gaveta_2_herramientas",
+            "gaveta_3_herramientas",
+            "gaveta_4_herramientas",
+            "gaveta_5_herramientas"
         ]
-    ]
+        ws.append(headers)
 
-    for row in sample_rows:
-        ws.append(row)
+        header_fill = PatternFill(start_color="0B1D45", end_color="0B1D45", fill_type="solid")
+        header_font = Font(name="Segoe UI", size=11, bold=True, color="FBBD00")
+        thin_border = Border(
+            left=Side(style='thin', color='CBD5E1'),
+            right=Side(style='thin', color='CBD5E1'),
+            top=Side(style='thin', color='CBD5E1'),
+            bottom=Side(style='thin', color='CBD5E1')
+        )
 
-    for row in ws.iter_rows(min_row=2, max_row=len(sample_rows)+1):
-        for cell in row:
-            cell.font = Font(name="Segoe UI", size=10)
-            cell.border = thin_border
-            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        for col_num, cell in enumerate(ws[1], 1):
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    column_widths = [16, 32, 16, 22, 20, 30, 45, 45, 45, 45, 45]
-    for idx, width in enumerate(column_widths, 1):
-        ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
+        sample_rows = [
+            [
+                "CH-ASRS-TA",
+                "Carro Turno A (ASRS)",
+                "TURNO",
+                "Área ASRS",
+                "Juanito Arias",
+                "Pasillo Principal Bahía 1",
+                "Juego Llaves Combinadas 8-24mm, Chicharra 1/2\", Dados de Impacto 17-21mm",
+                "Destornillador Paleta 6x100mm, Destornillador Cruz PH2, Alicate Universal 8\"",
+                "Martillo de Bola 500g, Martillo de Goma, Cincel Plano, Cepillo de Acero",
+                "Cinta Métrica 5m, Flexómetro de Trabajo, Manguera Neumática, Pistola de Aire",
+                "Candados LOTO Rojos (2 un), Pinza Bloqueo, Tarjeta 5S, Gafas de Seguridad"
+            ],
+            [
+                "CH-CST-M01",
+                "Carro Mecánico 01 (Construcción)",
+                "MECANICO",
+                "Área Construcción",
+                "Juanito Arias",
+                "Bahía Mantenimiento Construcción",
+                "Juego Dados 1/2\" Heavy Duty (8-32mm), Chicharra Pesada 1/2\", Palanca de Fuerza",
+                "Extractor de Rodamientos 3 Patas, Llaves Corona 10-24mm, Llave Ajustable 12\"",
+                "Arco de Sierra Profesional, Cinceles Planos, Limas de Ajuste, Llave Stilson 14\"",
+                "Pistola Neumática de Impacto 1/2\", Manómetro Digital, Aceite Lubricante",
+                "Torquímetro Calibrado 1/2\" (20-200 Nm), Pie de Metro Digital, Kit LOTO"
+            ]
+        ]
 
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
+        for row in sample_rows:
+            ws.append(row)
 
-    response = HttpResponse(
-        buffer.getvalue(),
-        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
-    response['Content-Disposition'] = 'attachment; filename="plantilla_carros_goodyear.xlsx"'
-    return response
+        for row in ws.iter_rows(min_row=2, max_row=len(sample_rows)+1):
+            for cell in row:
+                cell.font = Font(name="Segoe UI", size=10)
+                cell.border = thin_border
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+        column_widths = [16, 32, 16, 22, 20, 30, 45, 45, 45, 45, 45]
+        for idx, width in enumerate(column_widths, 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="plantilla_carros_goodyear.xlsx"'
+        return response
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": f"Error al generar plantilla: {str(e)}"}, status=500)
 
 
 @csrf_exempt
 def api_import_excel(request):
     """
-    POST: Importa carros y herramientas desde un archivo Excel (.xlsx) o CSV subido en multipart/form-data.
+    POST: Importa carros y herramientas desde un archivo Excel (.xlsx) o CSV subido en multipart/form-data (transaccional).
     """
     if request.method == 'POST':
         if 'file' not in request.FILES:
@@ -478,8 +594,9 @@ def api_import_excel(request):
         file_name = uploaded_file.name.lower()
 
         try:
-            import io, csv, openpyxl
             if file_name.endswith('.xlsx'):
+                if not HAS_OPENPYXL:
+                    return JsonResponse({"status": "error", "message": "openpyxl no está instalado en el servidor."}, status=500)
                 wb = openpyxl.load_workbook(uploaded_file, data_only=True)
                 ws = wb.active
                 rows = list(ws.iter_rows(values_only=True))
@@ -530,54 +647,58 @@ def api_import_excel(request):
             imported_carts = 0
             imported_tools = 0
 
-            for row in data_rows:
-                if not any(row):
-                    continue
+            with transaction.atomic():
+                for row in data_rows:
+                    if not any(row):
+                        continue
 
-                codigo = str(row[col_map['codigo']]).strip().upper() if col_map.get('codigo') is not None and row[col_map['codigo']] else ''
-                if not codigo or codigo.lower() in ['none', 'null']:
-                    continue
+                    codigo = str(row[col_map['codigo']]).strip().upper() if col_map.get('codigo') is not None and row[col_map['codigo']] else ''
+                    if not codigo or codigo.lower() in ['none', 'null']:
+                        continue
 
-                nombre = str(row[col_map.get('nombre', 0)]).strip() if col_map.get('nombre') is not None and row[col_map.get('nombre')] else codigo
-                categoria = str(row[col_map.get('categoria', 0)]).strip().upper() if col_map.get('categoria') is not None and row[col_map.get('categoria')] else 'TURNO'
-                if categoria not in ['TURNO', 'MECANICO', 'ELECTRICO', 'MECATRONICO']:
-                    categoria = 'TURNO'
+                    nombre = str(row[col_map.get('nombre', 0)]).strip() if col_map.get('nombre') is not None and row[col_map.get('nombre')] else codigo
+                    categoria = str(row[col_map.get('categoria', 0)]).strip().upper() if col_map.get('categoria') is not None and row[col_map.get('categoria')] else 'TURNO'
+                    if categoria not in ['TURNO', 'MECANICO', 'ELECTRICO', 'MECATRONICO']:
+                        categoria = 'TURNO'
 
-                area = str(row[col_map.get('area', 0)]).strip() if col_map.get('area') is not None and row[col_map.get('area')] else 'Planta Goodyear'
-                supervisor = str(row[col_map.get('supervisor', 0)]).strip() if col_map.get('supervisor') is not None and row[col_map.get('supervisor')] else 'Juanito Arias'
-                ubicacion = str(row[col_map.get('ubicacion', 0)]).strip() if col_map.get('ubicacion') is not None and row[col_map.get('ubicacion')] else 'Bahía de Mantenimiento'
+                    area = str(row[col_map.get('area', 0)]).strip() if col_map.get('area') is not None and row[col_map.get('area')] else 'Planta Goodyear'
+                    supervisor = str(row[col_map.get('supervisor', 0)]).strip() if col_map.get('supervisor') is not None and row[col_map.get('supervisor')] else 'Juanito Arias'
+                    ubicacion = str(row[col_map.get('ubicacion', 0)]).strip() if col_map.get('ubicacion') is not None and row[col_map.get('ubicacion')] else 'Bahía de Mantenimiento'
 
-                cart, created = ToolCart.objects.update_or_create(
-                    codigo_carro=codigo,
-                    defaults={
-                        'nombre_carro': nombre,
-                        'categoria': categoria,
-                        'especialidad_tipo': f"Carro {categoria}",
-                        'area': area,
-                        'supervisor_responsable': supervisor,
-                        'ubicacion_especifica': ubicacion,
-                    }
-                )
-                imported_carts += 1
+                    cart, created = ToolCart.objects.update_or_create(
+                        codigo_carro=codigo,
+                        defaults={
+                            'nombre_carro': nombre,
+                            'categoria': categoria,
+                            'especialidad_tipo': f"Carro {categoria}",
+                            'area': area,
+                            'supervisor_responsable': supervisor,
+                            'ubicacion_especifica': ubicacion,
+                        }
+                    )
+                    imported_carts += 1
 
-                for g_num in range(1, 6):
-                    g_key = f"g{g_num}"
-                    if col_map.get(g_key) is not None and row[col_map[g_key]]:
-                        raw_tools = str(row[col_map[g_key]]).replace(';', '\n').replace(',', '\n')
-                        tools_list = [t.strip() for t in raw_tools.split('\n') if t.strip()]
+                    for g_num in range(1, 6):
+                        g_key = f"g{g_num}"
+                        if col_map.get(g_key) is not None and row[col_map[g_key]]:
+                            raw_tools = str(row[col_map[g_key]]).replace(';', '\n').replace(',', '\n')
+                            tools_list = [t.strip() for t in raw_tools.split('\n') if t.strip()]
 
-                        if tools_list:
-                            cart.tools.filter(numero_gaveta=g_num).delete()
-                            for idx, tool_name in enumerate(tools_list, start=1):
-                                DrawerTool.objects.create(
-                                    cart=cart,
-                                    numero_gaveta=g_num,
-                                    nombre_herramienta=tool_name,
-                                    orden_posicion=idx
-                                )
-                                imported_tools += 1
+                            if tools_list:
+                                cart.tools.filter(numero_gaveta=g_num).delete()
+                                tools_to_create = [
+                                    DrawerTool(
+                                        cart=cart,
+                                        numero_gaveta=g_num,
+                                        nombre_herramienta=tool_name,
+                                        orden_posicion=idx
+                                    )
+                                    for idx, tool_name in enumerate(tools_list, start=1)
+                                ]
+                                DrawerTool.objects.bulk_create(tools_to_create)
+                                imported_tools += len(tools_to_create)
 
-                cart.recalculate_tool_count()
+                    cart.recalculate_tool_count()
 
             return JsonResponse({
                 "status": "success",
@@ -591,4 +712,3 @@ def api_import_excel(request):
             return JsonResponse({"status": "error", "message": f"Error procesando archivo: {str(e)}"}, status=500)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
-

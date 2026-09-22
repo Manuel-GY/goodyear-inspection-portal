@@ -27,6 +27,10 @@ class ToolCart(models.Model):
         verbose_name = 'Carro de Herramientas'
         verbose_name_plural = 'Carros de Herramientas'
         ordering = ['codigo_carro']
+        indexes = [
+            models.Index(fields=['categoria']),
+            models.Index(fields=['area']),
+        ]
 
     def __str__(self):
         return f"{self.codigo_carro} - {self.nombre_carro} ({self.area})"
@@ -52,6 +56,9 @@ class DrawerTool(models.Model):
         verbose_name = 'Herramienta de Gaveta'
         verbose_name_plural = 'Herramientas de Gavetas'
         ordering = ['numero_gaveta', 'orden_posicion', 'id']
+        indexes = [
+            models.Index(fields=['cart', 'numero_gaveta']),
+        ]
 
     def __str__(self):
         return f"[{self.cart.codigo_carro} G{self.numero_gaveta}] {self.nombre_herramienta}"
@@ -60,7 +67,7 @@ class DrawerTool(models.Model):
 class Inspection5S(models.Model):
     folio = models.CharField(max_length=50, unique=True, db_index=True)
     cart = models.ForeignKey(ToolCart, on_delete=models.SET_NULL, null=True, blank=True, related_name='inspections')
-    codigo_carro = models.CharField(max_length=50)
+    codigo_carro = models.CharField(max_length=50, db_index=True)
     nombre_auditor = models.CharField(max_length=150)
     responsable_carro_auditado = models.CharField(max_length=150)
     supervisor_responsable = models.CharField(max_length=150, default='Juanito Arias')
@@ -74,12 +81,15 @@ class Inspection5S(models.Model):
     firma_responsable_base64 = models.TextField(blank=True, null=True)
     ldap_auditor_id = models.CharField(max_length=50, blank=True, default='')
     ldap_responsable_id = models.CharField(max_length=50, blank=True, default='')
-    fecha_inspeccion = models.DateTimeField(auto_now_add=True)
+    fecha_inspeccion = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         verbose_name = 'Inspección 5S'
         verbose_name_plural = 'Inspecciones 5S'
         ordering = ['-fecha_inspeccion']
+        indexes = [
+            models.Index(fields=['codigo_carro', '-fecha_inspeccion']),
+        ]
 
     def __str__(self):
         return f"{self.folio} - {self.codigo_carro} ({self.estado_dictamen}) - {self.fecha_inspeccion.strftime('%d/%m/%Y %H:%M')}"
@@ -94,6 +104,9 @@ class InspectionMissingItem(models.Model):
     class Meta:
         verbose_name = 'Detalle de Faltante'
         verbose_name_plural = 'Detalles de Faltantes'
+        indexes = [
+            models.Index(fields=['inspection', 'numero_gaveta']),
+        ]
 
     def __str__(self):
         return f"{self.inspection.folio} - G{self.numero_gaveta}: {self.nombre_herramienta_faltante}"

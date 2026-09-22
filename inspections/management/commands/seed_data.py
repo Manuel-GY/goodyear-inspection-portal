@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
+from django.db import transaction
 from inspections.models import ToolCart, DrawerTool
-import json
 
 DRAWER_STRUCTURE = {
     'TURNO': {
@@ -75,32 +75,38 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs):
         self.stdout.write(self.style.NOTICE("Sembrando datos oficiales de la flota Goodyear (28 carros)..."))
 
-        for c_data in INITIAL_CARTS:
-            cart, created = ToolCart.objects.get_or_create(
-                codigo_carro=c_data["id"],
-                defaults={
-                    "nombre_carro": c_data["name"],
-                    "categoria": c_data["category"],
-                    "especialidad_tipo": c_data["type"],
-                    "area": c_data["area"],
-                    "ubicacion_especifica": "Bahía de Mantenimiento Planta Goodyear",
-                    "supervisor_responsable": "Juanito Arias",
-                    "estado_general": "OK" if c_data["with_tools"] else "Sin Configurar",
-                    "fotos_gavetas_json": "{}"
-                }
-            )
+        with transaction.atomic():
+            for c_data in INITIAL_CARTS:
+                cart, created = ToolCart.objects.get_or_create(
+                    codigo_carro=c_data["id"],
+                    defaults={
+                        "nombre_carro": c_data["name"],
+                        "categoria": c_data["category"],
+                        "especialidad_tipo": c_data["type"],
+                        "area": c_data["area"],
+                        "ubicacion_especifica": "Bahía de Mantenimiento Planta Goodyear",
+                        "supervisor_responsable": "Juanito Arias",
+                        "estado_general": "OK" if c_data["with_tools"] else "Sin Configurar",
+                        "fotos_gavetas_json": "{}"
+                    }
+                )
 
-            # Si el carro tiene herramientas preconfiguradas y aún no tiene herramientas cargadas
-            if c_data["with_tools"] and cart.tools.count() == 0:
-                cat_drawers = DRAWER_STRUCTURE.get(c_data["category"], {})
-                for drawer_num, tool_list in cat_drawers.items():
-                    for idx, tool_name in enumerate(tool_list, start=1):
-                        DrawerTool.objects.create(
-                            cart=cart,
-                            numero_gaveta=drawer_num,
-                            nombre_herramienta=tool_name,
-                            orden_posicion=idx
-                        )
-                cart.recalculate_tool_count()
+                # Si el carro tiene herramientas preconfiguradas y aún no tiene herramientas cargadas
+                if c_data["with_tools"] and cart.tools.count() == 0:
+                    cat_drawers = DRAWER_STRUCTURE.get(c_data["category"], {})
+                    tools_to_create = []
+                    for drawer_num, tool_list in cat_drawers.items():
+                        for idx, tool_name in enumerate(tool_list, start=1):
+                            tools_to_create.append(
+                                DrawerTool(
+                                    cart=cart,
+                                    numero_gaveta=drawer_num,
+                                    nombre_herramienta=tool_name,
+                                    orden_posicion=idx
+                                )
+                            )
+                    if tools_to_create:
+                        DrawerTool.objects.bulk_create(tools_to_create)
+                    cart.recalculate_tool_count()
 
         self.stdout.write(self.style.SUCCESS(f"¡Éxito! Total de carros en base de datos: {ToolCart.objects.count()}"))

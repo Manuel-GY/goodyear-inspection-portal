@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+from django.db import transaction
 from inspections.models import ToolCart, DrawerTool
 import os, csv
 
@@ -80,54 +81,57 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR("No se encontró la columna 'codigo_carro' en el archivo."))
             return
 
-        for row in data_rows:
-            if not any(row):
-                continue
+        with transaction.atomic():
+            for row in data_rows:
+                if not any(row):
+                    continue
 
-            codigo = str(row[col_map['codigo']]).strip().upper() if col_map.get('codigo') is not None and row[col_map['codigo']] else ''
-            if not codigo or codigo.lower() in ['none', 'null']:
-                continue
+                codigo = str(row[col_map['codigo']]).strip().upper() if col_map.get('codigo') is not None and row[col_map['codigo']] else ''
+                if not codigo or codigo.lower() in ['none', 'null']:
+                    continue
 
-            nombre = str(row[col_map.get('nombre', 0)]).strip() if col_map.get('nombre') is not None and row[col_map.get('nombre')] else codigo
-            categoria = str(row[col_map.get('categoria', 0)]).strip().upper() if col_map.get('categoria') is not None and row[col_map.get('categoria')] else 'TURNO'
-            if categoria not in ['TURNO', 'MECANICO', 'ELECTRICO', 'MECATRONICO']:
-                categoria = 'TURNO'
+                nombre = str(row[col_map.get('nombre', 0)]).strip() if col_map.get('nombre') is not None and row[col_map.get('nombre')] else codigo
+                categoria = str(row[col_map.get('categoria', 0)]).strip().upper() if col_map.get('categoria') is not None and row[col_map.get('categoria')] else 'TURNO'
+                if categoria not in ['TURNO', 'MECANICO', 'ELECTRICO', 'MECATRONICO']:
+                    categoria = 'TURNO'
 
-            area = str(row[col_map.get('area', 0)]).strip() if col_map.get('area') is not None and row[col_map.get('area')] else 'Planta Goodyear'
-            supervisor = str(row[col_map.get('supervisor', 0)]).strip() if col_map.get('supervisor') is not None and row[col_map.get('supervisor')] else 'Juanito Arias'
-            ubicacion = str(row[col_map.get('ubicacion', 0)]).strip() if col_map.get('ubicacion') is not None and row[col_map.get('ubicacion')] else 'Bahía de Mantenimiento'
+                area = str(row[col_map.get('area', 0)]).strip() if col_map.get('area') is not None and row[col_map.get('area')] else 'Planta Goodyear'
+                supervisor = str(row[col_map.get('supervisor', 0)]).strip() if col_map.get('supervisor') is not None and row[col_map.get('supervisor')] else 'Juanito Arias'
+                ubicacion = str(row[col_map.get('ubicacion', 0)]).strip() if col_map.get('ubicacion') is not None and row[col_map.get('ubicacion')] else 'Bahía de Mantenimiento'
 
-            cart, created = ToolCart.objects.update_or_create(
-                codigo_carro=codigo,
-                defaults={
-                    'nombre_carro': nombre,
-                    'categoria': categoria,
-                    'especialidad_tipo': f"Carro {categoria}",
-                    'area': area,
-                    'supervisor_responsable': supervisor,
-                    'ubicacion_especifica': ubicacion,
-                }
-            )
-            imported_carts += 1
+                cart, created = ToolCart.objects.update_or_create(
+                    codigo_carro=codigo,
+                    defaults={
+                        'nombre_carro': nombre,
+                        'categoria': categoria,
+                        'especialidad_tipo': f"Carro {categoria}",
+                        'area': area,
+                        'supervisor_responsable': supervisor,
+                        'ubicacion_especifica': ubicacion,
+                    }
+                )
+                imported_carts += 1
 
-            # Procesar herramientas de gavetas 1 a 5 si vienen en columnas separadas por comas o saltos de línea
-            for g_num in range(1, 6):
-                g_key = f"g{g_num}"
-                if col_map.get(g_key) is not None and row[col_map[g_key]]:
-                    raw_tools = str(row[col_map[g_key]]).replace(';', '\n').replace(',', '\n')
-                    tools_list = [t.strip() for t in raw_tools.split('\n') if t.strip()]
+                for g_num in range(1, 6):
+                    g_key = f"g{g_num}"
+                    if col_map.get(g_key) is not None and row[col_map[g_key]]:
+                        raw_tools = str(row[col_map[g_key]]).replace(';', '\n').replace(',', '\n')
+                        tools_list = [t.strip() for t in raw_tools.split('\n') if t.strip()]
 
-                    if tools_list:
-                        cart.tools.filter(numero_gaveta=g_num).delete()
-                        for idx, tool_name in enumerate(tools_list, start=1):
-                            DrawerTool.objects.create(
-                                cart=cart,
-                                numero_gaveta=g_num,
-                                nombre_herramienta=tool_name,
-                                orden_posicion=idx
-                            )
-                            imported_tools += 1
+                        if tools_list:
+                            cart.tools.filter(numero_gaveta=g_num).delete()
+                            tools_to_create = [
+                                DrawerTool(
+                                    cart=cart,
+                                    numero_gaveta=g_num,
+                                    nombre_herramienta=tool_name,
+                                    orden_posicion=idx
+                                )
+                                for idx, tool_name in enumerate(tools_list, start=1)
+                            ]
+                            DrawerTool.objects.bulk_create(tools_to_create)
+                            imported_tools += len(tools_to_create)
 
-            cart.recalculate_tool_count()
+                cart.recalculate_tool_count()
 
         self.stdout.write(self.style.SUCCESS(f"¡Importación completada! Carros procesados: {imported_carts}, Herramientas cargadas: {imported_tools}"))
