@@ -18,17 +18,26 @@
         --breadcrumbs-fg: #E2E8F0;
         --link-fg: #0B1D45;
         --link-hover-color: #1D4ED8;
-        --button-bg: #0B1D45;
-        --button-hover-bg: #0F172A;
-        --default-button-bg: #0B1D45;
-        --default-button-hover-bg: #0F172A;
     }
     #header {
         background: #0B1D45 !important;
         border-bottom: 3px solid #FBBD00 !important;
-        padding: 10px 20px !important;
+        padding: 12px 24px !important;
     }
-    #header a:link, #header a:visited {
+    #header a {
+        color: #FBBD00;
+    }
+    #user-tools {
+        color: #E2E8F0 !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+    #user-tools a {
+        color: #93C5FD !important;
+        font-weight: 600 !important;
+    }
+    #user-tools a:hover {
         color: #FBBD00 !important;
     }
     .breadcrumbs {
@@ -54,12 +63,16 @@
         color: #0B1D45 !important;
         font-weight: 900 !important;
     }
-    .portal-return-btn {
-        background: #FBBD00 !important;
+
+    /* BOTON ULTRA CLARO Y VISIBLE PARA VOLVER AL PORTAL */
+    #header .portal-return-btn,
+    #header .portal-return-btn:link,
+    #header .portal-return-btn:visited {
+        background-color: #FBBD00 !important;
         color: #0B1D45 !important;
         font-weight: 900 !important;
-        font-size: 11px !important;
-        padding: 6px 14px !important;
+        font-size: 12px !important;
+        padding: 7px 16px !important;
         border-radius: 8px !important;
         text-decoration: none !important;
         text-transform: uppercase !important;
@@ -67,11 +80,17 @@
         display: inline-flex !important;
         align-items: center !important;
         gap: 6px !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+        border: 2px solid #FFFFFF !important;
+        box-shadow: 0 3px 8px rgba(0,0,0,0.35) !important;
+        text-shadow: none !important;
+        transition: all 0.15s ease-in-out !important;
     }
-    .portal-return-btn:hover {
-        background: #facc15 !important;
+    #header .portal-return-btn:hover {
+        background-color: #FFFFFF !important;
         color: #0B1D45 !important;
+        border-color: #FBBD00 !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.45) !important;
     }
 </style>
 {% endblock %}
@@ -79,9 +98,9 @@
 {% block branding %}
 <div id="site-name" style="display: flex; align-items: center; gap: 14px;">
     <a href="{% url 'admin:index' %}" style="display: flex; align-items: center; gap: 10px; color: #FBBD00 !important; text-decoration: none;">
-        <span style="font-size: 20px;">🏭</span>
+        <span style="font-size: 22px;">🏭</span>
         <div style="display: flex; flex-direction: column;">
-            <strong style="font-size: 16px; font-weight: 900; letter-spacing: 1px; color: #FFFFFF;">GOODYEAR</strong>
+            <strong style="font-size: 16px; font-weight: 900; letter-spacing: 1.5px; color: #FFFFFF; text-transform: uppercase;">GOODYEAR</strong>
             <span style="font-size: 11px; font-weight: bold; color: #FBBD00; letter-spacing: 0.5px;">Portal de Inspección de Carros 5S</span>
         </div>
     </a>
@@ -91,7 +110,7 @@
 {% block nav-global %}
 <div style="display: flex; align-items: center; gap: 12px; margin-right: 15px;">
     <a href="/" class="portal-return-btn">
-        ⬅ Ver Portal de Inspección
+        <span style="font-size: 14px;">⬅</span> Ver Portal de Inspección
     </a>
 </div>
 {% endblock %}
