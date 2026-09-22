@@ -1,6 +1,11 @@
 from django.contrib import admin
 from .models import ToolCart, DrawerTool, Inspection5S, InspectionMissingItem
 
+# Personalización de títulos del panel administrativo
+admin.site.site_header = "Portal de Inspección de Carros 5S — Goodyear"
+admin.site.site_title = "Goodyear 5S Admin"
+admin.site.index_title = "Administración de Flota, Gavetas y Auditorías 5S"
+
 class DrawerToolInline(admin.TabularInline):
     model = DrawerTool
     extra = 1
