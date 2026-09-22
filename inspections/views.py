@@ -368,3 +368,227 @@ def api_reset_factory(request):
             return JsonResponse({"status": "error", "message": str(e)}, status=500)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
+
+
+def api_download_excel_template(request):
+    """
+    GET: Genera y descarga un archivo Excel (.xlsx) con la plantilla oficial Goodyear.
+    """
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Plantilla Carros 5S"
+
+    headers = [
+        "codigo_carro",
+        "nombre_carro",
+        "categoria",
+        "area",
+        "supervisor",
+        "ubicacion_especifica",
+        "gaveta_1_herramientas",
+        "gaveta_2_herramientas",
+        "gaveta_3_herramientas",
+        "gaveta_4_herramientas",
+        "gaveta_5_herramientas"
+    ]
+    ws.append(headers)
+
+    header_fill = PatternFill(start_color="0B1D45", end_color="0B1D45", fill_type="solid")
+    header_font = Font(name="Segoe UI", size=11, bold=True, color="FBBD00")
+    thin_border = Border(
+        left=Side(style='thin', color='CBD5E1'),
+        right=Side(style='thin', color='CBD5E1'),
+        top=Side(style='thin', color='CBD5E1'),
+        bottom=Side(style='thin', color='CBD5E1')
+    )
+
+    for col_num, cell in enumerate(ws[1], 1):
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    sample_rows = [
+        [
+            "CH-ASRS-TA",
+            "Carro Turno A (ASRS)",
+            "TURNO",
+            "Área ASRS",
+            "Juanito Arias",
+            "Pasillo Principal Bahía 1",
+            "Juego Llaves Combinadas 8-24mm, Chicharra 1/2\", Dados de Impacto 17-21mm",
+            "Destornillador Paleta 6x100mm, Destornillador Cruz PH2, Alicate Universal 8\"",
+            "Martillo de Bola 500g, Martillo de Goma, Cincel Plano, Cepillo de Acero",
+            "Cinta Métrica 5m, Flexómetro de Trabajo, Manguera Neumática, Pistola de Aire",
+            "Candados LOTO Rojos (2 un), Pinza Bloqueo, Tarjeta 5S, Gafas de Seguridad"
+        ],
+        [
+            "CH-CST-M01",
+            "Carro Mecánico 01 (Construcción)",
+            "MECANICO",
+            "Área Construcción",
+            "Juanito Arias",
+            "Bahía Mantenimiento Construcción",
+            "Juego Dados 1/2\" Heavy Duty (8-32mm), Chicharra Pesada 1/2\", Palanca de Fuerza",
+            "Extractor de Rodamientos 3 Patas, Llaves Corona 10-24mm, Llave Ajustable 12\"",
+            "Arco de Sierra Profesional, Cinceles Planos, Limas de Ajuste, Llave Stilson 14\"",
+            "Pistola Neumática de Impacto 1/2\", Manómetro Digital, Aceite Lubricante",
+            "Torquímetro Calibrado 1/2\" (20-200 Nm), Pie de Metro Digital, Kit LOTO"
+        ]
+    ]
+
+    for row in sample_rows:
+        ws.append(row)
+
+    for row in ws.iter_rows(min_row=2, max_row=len(sample_rows)+1):
+        for cell in row:
+            cell.font = Font(name="Segoe UI", size=10)
+            cell.border = thin_border
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+    column_widths = [16, 32, 16, 22, 20, 30, 45, 45, 45, 45, 45]
+    for idx, width in enumerate(column_widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    response = HttpResponse(
+        buffer.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = 'attachment; filename="plantilla_carros_goodyear.xlsx"'
+    return response
+
+
+@csrf_exempt
+def api_import_excel(request):
+    """
+    POST: Importa carros y herramientas desde un archivo Excel (.xlsx) o CSV subido en multipart/form-data.
+    """
+    if request.method == 'POST':
+        if 'file' not in request.FILES:
+            return JsonResponse({"status": "error", "message": "No se ha subido ningún archivo."}, status=400)
+
+        uploaded_file = request.FILES['file']
+        file_name = uploaded_file.name.lower()
+
+        try:
+            import io, csv, openpyxl
+            if file_name.endswith('.xlsx'):
+                wb = openpyxl.load_workbook(uploaded_file, data_only=True)
+                ws = wb.active
+                rows = list(ws.iter_rows(values_only=True))
+                if not rows:
+                    return JsonResponse({"status": "error", "message": "El archivo Excel está vacío."}, status=400)
+                header = [str(c).strip().lower() if c is not None else '' for c in rows[0]]
+                data_rows = rows[1:]
+            elif file_name.endswith('.csv'):
+                content = uploaded_file.read().decode('utf-8-sig')
+                reader = csv.reader(io.StringIO(content))
+                rows = list(reader)
+                if not rows:
+                    return JsonResponse({"status": "error", "message": "El archivo CSV está vacío."}, status=400)
+                header = [str(c).strip().lower() for c in rows[0]]
+                data_rows = rows[1:]
+            else:
+                return JsonResponse({"status": "error", "message": "Formato no compatible. Por favor suba un archivo .xlsx o .csv."}, status=400)
+
+            col_map = {}
+            for idx, raw_col in enumerate(header):
+                col = str(raw_col).replace('_', ' ').replace('-', ' ').strip().lower()
+                if 'codigo' in col or 'código' in col or 'id' in col:
+                    col_map['codigo'] = idx
+                elif 'nombre' in col or 'carro' in col:
+                    col_map['nombre'] = idx
+                elif 'categor' in col:
+                    col_map['categoria'] = idx
+                elif 'area' in col or 'área' in col:
+                    col_map['area'] = idx
+                elif 'superv' in col:
+                    col_map['supervisor'] = idx
+                elif 'ubicac' in col:
+                    col_map['ubicacion'] = idx
+                elif 'gaveta 1' in col or 'g1' in col or 'gaveta1' in col:
+                    col_map['g1'] = idx
+                elif 'gaveta 2' in col or 'g2' in col or 'gaveta2' in col:
+                    col_map['g2'] = idx
+                elif 'gaveta 3' in col or 'g3' in col or 'gaveta3' in col:
+                    col_map['g3'] = idx
+                elif 'gaveta 4' in col or 'g4' in col or 'gaveta4' in col:
+                    col_map['g4'] = idx
+                elif 'gaveta 5' in col or 'g5' in col or 'gaveta5' in col:
+                    col_map['g5'] = idx
+
+            if 'codigo' not in col_map:
+                return JsonResponse({"status": "error", "message": "No se encontró la columna 'codigo_carro' en el archivo."}, status=400)
+
+            imported_carts = 0
+            imported_tools = 0
+
+            for row in data_rows:
+                if not any(row):
+                    continue
+
+                codigo = str(row[col_map['codigo']]).strip().upper() if col_map.get('codigo') is not None and row[col_map['codigo']] else ''
+                if not codigo or codigo.lower() in ['none', 'null']:
+                    continue
+
+                nombre = str(row[col_map.get('nombre', 0)]).strip() if col_map.get('nombre') is not None and row[col_map.get('nombre')] else codigo
+                categoria = str(row[col_map.get('categoria', 0)]).strip().upper() if col_map.get('categoria') is not None and row[col_map.get('categoria')] else 'TURNO'
+                if categoria not in ['TURNO', 'MECANICO', 'ELECTRICO', 'MECATRONICO']:
+                    categoria = 'TURNO'
+
+                area = str(row[col_map.get('area', 0)]).strip() if col_map.get('area') is not None and row[col_map.get('area')] else 'Planta Goodyear'
+                supervisor = str(row[col_map.get('supervisor', 0)]).strip() if col_map.get('supervisor') is not None and row[col_map.get('supervisor')] else 'Juanito Arias'
+                ubicacion = str(row[col_map.get('ubicacion', 0)]).strip() if col_map.get('ubicacion') is not None and row[col_map.get('ubicacion')] else 'Bahía de Mantenimiento'
+
+                cart, created = ToolCart.objects.update_or_create(
+                    codigo_carro=codigo,
+                    defaults={
+                        'nombre_carro': nombre,
+                        'categoria': categoria,
+                        'especialidad_tipo': f"Carro {categoria}",
+                        'area': area,
+                        'supervisor_responsable': supervisor,
+                        'ubicacion_especifica': ubicacion,
+                    }
+                )
+                imported_carts += 1
+
+                for g_num in range(1, 6):
+                    g_key = f"g{g_num}"
+                    if col_map.get(g_key) is not None and row[col_map[g_key]]:
+                        raw_tools = str(row[col_map[g_key]]).replace(';', '\n').replace(',', '\n')
+                        tools_list = [t.strip() for t in raw_tools.split('\n') if t.strip()]
+
+                        if tools_list:
+                            cart.tools.filter(numero_gaveta=g_num).delete()
+                            for idx, tool_name in enumerate(tools_list, start=1):
+                                DrawerTool.objects.create(
+                                    cart=cart,
+                                    numero_gaveta=g_num,
+                                    nombre_herramienta=tool_name,
+                                    orden_posicion=idx
+                                )
+                                imported_tools += 1
+
+                cart.recalculate_tool_count()
+
+            return JsonResponse({
+                "status": "success",
+                "message": f"¡Importación completada! Se procesaron {imported_carts} carros y {imported_tools} herramientas.",
+                "imported_carts": imported_carts,
+                "imported_tools": imported_tools,
+                "total_carts_db": ToolCart.objects.count()
+            })
+
+        except Exception as e:
+            return JsonResponse({"status": "error", "message": f"Error procesando archivo: {str(e)}"}, status=500)
+
+    return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
+

@@ -10,4 +10,6 @@ urlpatterns = [
     path('api/inspections/', views.api_inspections_list_create, name='api_inspections_list_create'),
     path('api/dashboard/stats/', views.api_dashboard_stats, name='api_dashboard_stats'),
     path('api/reset-factory/', views.api_reset_factory, name='api_reset_factory'),
+    path('api/download-excel-template/', views.api_download_excel_template, name='api_download_excel_template'),
+    path('api/import-excel/', views.api_import_excel, name='api_import_excel'),
 ]

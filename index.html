@@ -829,6 +829,9 @@
 
                         <!-- BOTONES ACCION GLOBAL DE FLOTA -->
                         <div class="flex flex-wrap items-center gap-2">
+                            <button type="button" onclick="openImportExcelModal()" class="bg-green-50 hover:bg-green-100 text-green-800 border border-green-300 px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition shadow-sm" title="Importar o migrar carros y herramientas desde un archivo Excel o CSV">
+                                <i class="fa-solid fa-file-excel text-green-600 text-sm"></i> Importar Excel / CSV
+                            </button>
                             <button type="button" onclick="printAllCartQRStickers()" class="bg-yellow-50 hover:bg-yellow-100 text-goodyear-navy border border-goodyear-gold/80 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition shadow-sm" title="Imprimir lote completo de etiquetas QR para la planta">
                                 <i class="fa-solid fa-print text-goodyear-gold text-sm"></i> Imprimir Todos los QR (<span class="fleet-total-badge">28</span> Carros)
                             </button>
@@ -854,6 +857,9 @@
                             <p class="text-xs text-goodyear-darkgray">Configure la dotación oficial de herramientas y actualice las fotografías patrón de espuma troquelada.</p>
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
+                            <button type="button" onclick="openImportExcelModal()" class="bg-green-50 hover:bg-green-100 text-green-800 border border-green-300 px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition">
+                                <i class="fa-solid fa-file-excel text-green-600"></i> Importar Excel
+                            </button>
                             <button type="button" onclick="exportCartConfigJSON()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition">
                                 <i class="fa-solid fa-download"></i> Exportar JSON
                             </button>
@@ -3262,6 +3268,97 @@
             deleteCart(select.value);
         }
 
+        // ==================== MODAL E IMPORTACIÓN MASIVA DESDE EXCEL / CSV ====================
+        function openImportExcelModal() {
+            const modal = document.getElementById('importExcelModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                const fileInput = document.getElementById('excelImportFileInput');
+                if (fileInput) {
+                    fileInput.value = '';
+                    fileInput.onchange = function() {
+                        const notice = document.getElementById('excelImportFileSelectedNotice');
+                        if (notice) {
+                            if (fileInput.files.length > 0) notice.classList.remove('hidden');
+                            else notice.classList.add('hidden');
+                        }
+                    };
+                }
+                const notice = document.getElementById('excelImportFileSelectedNotice');
+                if (notice) notice.classList.add('hidden');
+            }
+        }
+
+        function closeImportExcelModal() {
+            const modal = document.getElementById('importExcelModal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        async function processExcelImport() {
+            const fileInput = document.getElementById('excelImportFileInput');
+            if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Archivo Requerido',
+                    text: 'Por favor seleccione un archivo Excel (.xlsx) o CSV antes de continuar.',
+                    confirmButtonColor: '#0B1D45'
+                });
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const btn = document.getElementById('btnProcessExcelImport');
+            const originalText = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Procesando...';
+            }
+
+            try {
+                const response = await fetch('/api/import-excel/', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    closeImportExcelModal();
+                    await initCartDataStore();
+
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Importación Exitosa!',
+                        html: `Se han procesado <strong>${data.imported_carts}</strong> carros y <strong>${data.imported_tools}</strong> herramientas.<br><br>Total actual en base de datos Django: <strong>${data.total_carts_db} carros</strong>.`,
+                        confirmButtonColor: '#0B1D45'
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error de Importación',
+                        text: data.message || 'No se pudo procesar el archivo Excel.',
+                        confirmButtonColor: '#0B1D45'
+                    });
+                }
+            } catch(err) {
+                console.error("Error al importar archivo:", err);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error de Conexión',
+                    text: 'Ocurrió un error al enviar el archivo al servidor Django.',
+                    confirmButtonColor: '#0B1D45'
+                });
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            }
+        }
+
         // ==================== AUTENTICACIÓN LDAP Y PRIVILEGIOS DE ADMIN ====================
         const AUTHORIZED_ADMIN_USERS = ['aa09876', 'ac17157'];
         let isLDAPAdminLoggedIn = false;
@@ -4771,6 +4868,72 @@
                 <button type="button" onclick="closeDrawerRefModal()" class="bg-goodyear-navy hover:bg-goodyear-darknavy text-goodyear-gold font-bold px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider shadow cursor-pointer transition flex items-center gap-2">
                     <i class="fa-solid fa-xmark"></i> Cerrar Ventana
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: IMPORTACIÓN MASIVA DESDE EXCEL / CSV ==================== -->
+    <div id="importExcelModal" onclick="if(event.target === this) closeImportExcelModal()" class="hidden fixed inset-0 z-50 bg-goodyear-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+        <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-slate-200 animate-in fade-in zoom-in duration-150 my-auto">
+            <div class="bg-goodyear-navy text-white px-6 py-4 flex justify-between items-center border-b-2 border-goodyear-gold">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 bg-green-500/20 text-green-400 rounded-xl flex items-center justify-center text-lg font-bold border border-green-500/40">
+                        <i class="fa-solid fa-file-excel"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-sm tracking-wide text-white">Importar Flota desde Excel / CSV</h3>
+                        <p class="text-[10px] text-goodyear-gold">Carga masiva directa a la Base de Datos Django</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeImportExcelModal()" class="text-slate-400 hover:text-white text-xl font-bold">&times;</button>
+            </div>
+            
+            <div class="p-6 space-y-5 text-xs">
+                <!-- PASO 1: DESCARGAR PLANTILLA -->
+                <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-xs">
+                    <div>
+                        <strong class="text-xs text-goodyear-navy flex items-center gap-1.5">
+                            <i class="fa-solid fa-file-arrow-down text-goodyear-gold"></i> 1. Descargar Plantilla Oficial
+                        </strong>
+                        <p class="text-[11px] text-slate-600 mt-0.5">Archivo Excel (.xlsx) con columnas configuradas y ejemplos.</p>
+                    </div>
+                    <a href="/api/download-excel-template/" download="plantilla_carros_goodyear.xlsx" class="bg-goodyear-navy hover:bg-goodyear-darknavy text-goodyear-gold font-bold px-3.5 py-2 rounded-xl text-xs uppercase tracking-wider flex items-center gap-1.5 transition shadow-xs whitespace-nowrap">
+                        <i class="fa-solid fa-download"></i> Plantilla .xlsx
+                    </a>
+                </div>
+
+                <!-- PASO 2: SELECCIONAR ARCHIVO -->
+                <div class="space-y-2">
+                    <label class="block text-xs font-bold uppercase text-goodyear-navy flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-circle-plus text-green-600"></i> 2. Seleccionar Archivo a Importar (.xlsx o .csv) *
+                    </label>
+                    <input type="file" id="excelImportFileInput" accept=".xlsx, .csv" class="block w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-green-100 file:text-green-800 hover:file:bg-green-200 cursor-pointer border border-slate-300 rounded-2xl p-2 bg-slate-50">
+                    <div id="excelImportFileSelectedNotice" class="hidden text-[11px] text-green-700 font-bold mt-1 flex items-center gap-1">
+                        <i class="fa-solid fa-circle-check"></i> Archivo listo para procesar.
+                    </div>
+                </div>
+
+                <!-- NOTA INFORMATIVA -->
+                <div class="text-[11px] text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1">
+                    <div class="font-bold text-goodyear-navy flex items-center gap-1">
+                        <i class="fa-solid fa-circle-info text-goodyear-gold"></i> Reglas de Importación:
+                    </div>
+                    <ul class="list-disc list-inside space-y-0.5 pl-1 text-[10.5px]">
+                        <li>Si el <code>codigo_carro</code> ya existe, se actualizan sus datos y herramientas.</li>
+                        <li>Si el <code>codigo_carro</code> no existe, se crea automáticamente en la flota.</li>
+                        <li>Las herramientas de cada gaveta pueden separarse por comas (<code>,</code>) o punto y coma (<code>;</code>).</li>
+                    </ul>
+                </div>
+
+                <!-- BOTONES DE ACCIÓN -->
+                <div class="grid grid-cols-2 gap-3 pt-2">
+                    <button type="button" onclick="closeImportExcelModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition">
+                        Cancelar
+                    </button>
+                    <button type="button" id="btnProcessExcelImport" onclick="processExcelImport()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition flex items-center justify-center gap-2 shadow-md">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> Iniciar Importación
+                    </button>
+                </div>
             </div>
         </div>
     </div>

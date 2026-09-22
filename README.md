@@ -6,31 +6,78 @@ Sistema integral web de gestión, auditoría 5S y control centralizado de invent
 
 ---
 
-## 🚀 Características Principales
+## 🔑 Credenciales de Acceso
 
-- **Backend Centralizado en Django + Base de Datos Relacional**:
-  - 🌐 Sincronización en tiempo real entre todos los dispositivos (Pistolas Falcon, Celulares y PCs de supervisión).
-  - 💾 Base de datos unificada (`db.sqlite3` / PostgreSQL / SQL Server) para auditorías, flota de carros, gavetas y fotos 5S.
-  - 📡 REST APIs para carros (`/api/carts/`), gavetas (`/api/carts/<id>/drawers/<num>/tools/`), auditorías (`/api/inspections/`) y estadísticas (`/api/dashboard/stats/`).
-  - 📴 Capacidad de trabajo Offline/Caché local con re-sincronización automática.
-- **Flota Oficial de 28 Carros de Herramientas**:
-  - 🏭 **Área ASRS (12 Carros)**: Carros de Turno (A, B, C, D), Mecánicos (M01, M02) y Mecatrónicos (MT01 a MT06) (Supervisor: Juanito Arias).
-  - 🏗️ **Área Construcción (12 Carros)**: Carros de Turno (A, B, C, D) y Mecatrónicos (MT01 a MT08) (Supervisor: Juanito Arias).
-  - 🏁 **Área Final Finish (4 Carros)**: Carros de Turno (A, B), Mecánico (M01) y Mecatrónico (MT01) (Supervisor: Juanito Arias).
-  - ➕ Creación y eliminación dinámica de nuevos carros desde el panel administrador o directamente desde las tarjetas de flota.
-- **Escanear QR y Códigos Únicos por Carro (28 Carros)**:
-  - 📷 **Acceso Directo por QR**: Cada uno de los 28 carros cuenta con un código QR único que redirige inmediatamente a su lista de verificación de inspección (`?cart=CH-ASRS-TA`).
-  - 🖨️ **Impresión de Stickers QR en Módulo Admin**: Generador e impresor individual de sticker por carro con logo Goodyear y botón de **Impresión por Lote (28 Stickers en Hoja de Etiquetas)** para rotular toda la planta de una sola vez.
-  - 📄 **Manifiesto Oficial 5S Imprimible**: Botón en cada carro y modal de gavetas para imprimir el **Manifiesto de Herramientas** completo en formato hoja de control (con datos de planta, código QR, foto de ubicación, fotos de referencia 5S gaveta por gaveta, tabla de inventario numerada y sección de firmas).
-- **Detección Automática Multiplataforma**:
-  - 🖥️ **Modo PC Desktop**: Vista integral de supervisión con **Dashboard analítico 5S**, KPIs, gráficos de cumplimiento, inventario de la flota completa, historial detallado y módulo de administración.
-  - 📱 **Modo Celular Corporativo**: Vista **exclusiva de inspección** sin distracciones. Al ingresar, solicita de inmediato el escaneo del código QR con la cámara. Al completar una auditoría, solicita inmediatamente el siguiente QR.
-  - 🔫 **Modo Datalogic Falcon X4 (Windows Embedded Compact / CE)**: Vista **exclusiva de inspección ultraligera**. Carga inmediata para escaneo con gatillo láser, interfaz de alto contraste y exclusión de fotos pesadas para máximo rendimiento en la memoria del terminal.
-- **Validación de Identidad por LDAP Corporativo y Doble Firma Digital**:
-  - 👤 **Identificación LDAP**: Registro de ID de usuario y nombre tanto del auditor como del responsable auditado.
-  - ✍️ **Firma Digital Manual**: Lienzo interactivo para firma manual táctil o con cursor, estampada en el comprobante y registro de auditoría.
-- **Notificaciones Automáticas a Microsoft Teams**:
-  - Integración nativa mediante Webhook de Power Automate y **Adaptive Cards v1.2**.
+| Tipo de Acceso | URL | Usuario / Rol | Contraseña |
+| :--- | :--- | :--- | :--- |
+| **Portal Principal 5S** | `http://localhost:8000` | Operadores / Inspectores | *Acceso Libre* |
+| **Módulo Admin en Portal** | Pestaña **Administrador** | `ac17157` / `aa09876` | *Validación LDAP* |
+| **Django Admin Backoffice** | `http://localhost:8000/admin` | **`admin`** | **`Goodyear5S2026!`** |
+
+---
+
+## 🚀 Puesta en Marcha Rápida (3 Comandos)
+
+1. **Instalar dependencias**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Aplicar migraciones y cargar los 28 carros oficiales de Goodyear**:
+   ```bash
+   python manage.py migrate
+   python manage.py seed_data
+   ```
+
+3. **Iniciar el servidor para toda la red de la planta**:
+   ```bash
+   python manage.py runserver 0.0.0.0:8000
+   ```
+
+---
+
+## 📱 Acceso por Dispositivo en la Red de la Planta
+
+- 🖥️ **PCs de Supervisión y Oficina**:
+  - `http://localhost:8000` (Local)
+  - `http://10.107.202.76:8000` o `http://<IP_DE_TU_PC>:8000`
+- 📱 **Celulares Corporativos e Inspectores en Terreno**:
+  - `http://10.107.202.76:8000` (Abre directamente el escáner QR de cámara).
+- 🔫 **Pistolas Láser Datalogic Falcon X4 (Windows CE)**:
+  - `http://10.107.202.76:8000` (Modo ultraligero sin gráficos pesados).
+
+---
+
+## 📊 Migración e Importación Masiva desde Excel / CSV
+
+El sistema permite importar y actualizar masivamente carros y herramientas de gavetas desde archivos Excel (`.xlsx`) o CSV.
+
+### Método 1: Desde la Interfaz Web (Recomendado)
+1. En la pestaña **Flota de Carros** o en el **Editor de Gavetas**, haz clic en el botón verde **`📥 Importar Excel / CSV`**.
+2. Haz clic en **`Descargar Plantilla .xlsx`** para obtener el archivo modelo con columnas y ejemplos de Goodyear.
+3. Completa los datos en Excel, selecciona el archivo y presiona **`Iniciar Importación`**.
+
+### Método 2: Desde la Terminal (Línea de Comandos)
+```bash
+# 1. Generar la plantilla Excel con formato Goodyear
+python manage.py export_template
+
+# 2. Importar un archivo Excel o CSV directamente a la base de datos
+python manage.py import_excel plantilla_carros_goodyear.xlsx
+```
+
+### 📋 Estructura de Columnas de la Plantilla Excel:
+- `codigo_carro`: Identificador único (ej: `CH-ASRS-TA`, `CH-CST-M01`).
+- `nombre_carro`: Nombre descriptivo (ej: `Carro Turno A (ASRS)`).
+- `categoria`: `TURNO`, `MECANICO`, `ELECTRICO` o `MECATRONICO`.
+- `area`: `Área ASRS`, `Área Construcción`, `Área Final Finish`, etc.
+- `supervisor`: Nombre del supervisor responsable (ej: `Juanito Arias`).
+- `ubicacion_especifica`: Ubicación en la planta (ej: `Bahía 1 Pasillo Principal`).
+- `gaveta_1_herramientas`: Listado de herramientas separadas por comas (`,`) o punto y coma (`;`).
+- `gaveta_2_herramientas`: Herramientas de Gaveta 2.
+- `gaveta_3_herramientas`: Herramientas de Gaveta 3.
+- `gaveta_4_herramientas`: Herramientas de Gaveta 4.
+- `gaveta_5_herramientas`: Herramientas de Gaveta 5.
 
 ---
 
@@ -38,54 +85,29 @@ Sistema integral web de gestión, auditoría 5S y control centralizado de invent
 
 ```text
 goodyear-inspection-portal/
-├── goodyear_portal/           # Configuración del proyecto Django (settings, urls, asgi, wsgi)
-├── inspections/               # App de Django (modelos, vistas API, admin, seed_data)
-│   ├── management/commands/   # Comando de siembra inicial (seed_data)
-│   ├── models.py              # Modelos: ToolCart, DrawerTool, Inspection5S, InspectionMissingItem
-│   ├── views.py               # Vistas y APIs REST
-│   └── urls.py                # Rutas de endpoints
-├── static/                    # Archivos estáticos (logo-goodyear.png, assets)
-├── index.html                 # Frontend Single Page Application optimizado
-├── manage.py                  # CLI de Django
-├── requirements.txt           # Dependencias Python
-└── README.md                  # Documentación
+├── goodyear_portal/                 # Configuración del proyecto Django (settings, urls, wsgi, asgi)
+├── inspections/                     # Aplicación Django principal
+│   ├── management/commands/
+│   │   ├── seed_data.py             # Carga inicial de 28 carros oficiales
+│   │   ├── import_excel.py          # Importador de archivos Excel y CSV
+│   │   └── export_template.py       # Generador de plantilla Excel
+│   ├── models.py                    # Modelos: ToolCart, DrawerTool, Inspection5S, InspectionMissingItem
+│   ├── views.py                     # Vistas y APIs REST (Carros, Inspecciones, Excel, Stats)
+│   └── urls.py                      # Rutas de endpoints
+├── static/                          # Archivos estáticos (logo-goodyear.png, assets)
+├── index.html                       # Frontend Single Page Application optimizado
+├── plantilla_carros_goodyear.xlsx   # Plantilla Excel modelo lista para usar
+├── manage.py                        # CLI de Django
+├── requirements.txt                 # Dependencias Python
+└── README.md                        # Documentación oficial
 ```
 
 ---
 
-## ⚙️ Instalación y Puesta en Marcha (Django)
+## 🖨️ Funcionalidades Especiales de Impresión
 
-1. **Clonar el repositorio**:
-   ```bash
-   git clone https://github.com/Manuel-GY/goodyear-inspection-portal.git
-   cd goodyear-inspection-portal
-   ```
-
-2. **Instalar dependencias**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Ejecutar migraciones y sembrar los 28 carros oficiales**:
-   ```bash
-   python manage.py migrate
-   python manage.py seed_data
-   ```
-
-4. **Crear superusuario para Django Admin (Opcional)**:
-   ```bash
-   python manage.py createsuperuser
-   ```
-
-5. **Iniciar el Servidor (Accesible desde toda la red de la planta)**:
-   ```bash
-   python manage.py runserver 0.0.0.0:8000
-   ```
-
-6. **Acceso desde cualquier dispositivo**:
-   - Desde PC: `http://localhost:8000` o `http://<IP_SERVIDOR>:8000`
-   - Desde Celulares / Pistolas Falcon X4: `http://<IP_SERVIDOR>:8000`
-   - Panel de Administración Django: `http://<IP_SERVIDOR>:8000/admin`
+- **`Imprimir Todos los QR (28 Carros)`**: Genera automáticamente una hoja de etiquetas con los 28 códigos QR oficiales listos para recortar y pegar en cada carro de la planta.
+- **`Imprimir Manifiesto (Listado + Fotos)`**: Genera la ficha técnica oficial 5S del carro con foto de ubicación, estándares fotográficos de las 5 gavetas y tabla de inventario numerada para auditorías.
 
 ---
 
