@@ -1,0 +1,122 @@
+"""
+Django settings for goodyear_portal project.
+Sistema de Inspección y Manifiesto 5S de Carros de Herramientas Goodyear.
+"""
+
+from pathlib import Path
+import os
+import sys
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() in ('1', 'true', 'yes')
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    if DEBUG or 'test' in sys.argv:
+        SECRET_KEY = 'development-only-change-this-goodyear-5s-key-2026-9f3c7a1b'
+    else:
+        raise ValueError('DJANGO_SECRET_KEY must be configured when DJANGO_DEBUG is False.')
+
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    if host.strip()
+]
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    'corsheaders',
+    'inspections',
+]
+
+MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+ROOT_URLCONF = 'goodyear_portal.urls'
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [BASE_DIR / 'templates', BASE_DIR],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = 'goodyear_portal.wsgi.application'
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
+
+LANGUAGE_CODE = 'es-cl'
+TIME_ZONE = 'America/Santiago'
+USE_I18N = True
+USE_TZ = True
+
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+    BASE_DIR,
+]
+
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = bool(CORS_ALLOWED_ORIGINS)
+API_MAX_PAGE_SIZE = int(os.environ.get('API_MAX_PAGE_SIZE', '100'))
+IMPORT_MAX_ROWS = int(os.environ.get('IMPORT_MAX_ROWS', '5000'))
+IMPORT_MAX_FILE_SIZE = int(os.environ.get('IMPORT_MAX_FILE_SIZE', str(10 * 1024 * 1024)))
+DATA_UPLOAD_MAX_MEMORY_SIZE = IMPORT_MAX_FILE_SIZE
+FILE_UPLOAD_MAX_MEMORY_SIZE = IMPORT_MAX_FILE_SIZE
+LDAP_AUTH_API_URL = os.environ.get(
+    'LDAP_AUTH_API_URL',
+    'http://10.107.194.110:8080/api/login-ldap/'
+)
+LDAP_AUTH_API_TIMEOUT = float(os.environ.get('LDAP_AUTH_API_TIMEOUT', '10'))
+
+if not DEBUG and 'test' not in sys.argv:
+    SECURE_SSL_REDIRECT = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    CSRF_COOKIE_HTTPONLY = False
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'same-origin'
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
