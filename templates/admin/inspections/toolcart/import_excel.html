@@ -40,11 +40,11 @@
             </div>
 
             <div style="background: #f8fafc; border-left: 4px solid #FBBD00; padding: 12px; margin-bottom: 25px; font-size: 11.5px; color: #334155;">
-                <strong>Reglas de Procesamiento:</strong>
-                <ul style="margin: 6px 0 0 16px; padding: 0;">
-                    <li>Si el <code>codigo_carro</code> ya existe en la base de datos, se actualizarán sus datos y herramientas.</li>
-                    <li>Si el <code>codigo_carro</code> no existe, se creará un nuevo registro.</li>
-                    <li>Las herramientas en las columnas de gavetas pueden ir separadas por comas (<code>,</code>) o saltos de línea.</li>
+                <strong>Reglas de Procesamiento Inteligente:</strong>
+                <ul style="margin: 6px 0 0 16px; padding: 0; line-height: 1.6;">
+                    <li><strong>Asignación automática de Código y Nombre:</strong> Sólo debe ingresar el tipo (<code>TURNO</code>, <code>MECANICO</code>, <code>ELECTRICO</code>, <code>MECATRONICO</code>), turno/número (<code>A</code>, <code>B</code>, <code>01</code>, etc.) y área (<code>ASRS</code>, <code>Construcción</code>, etc.). El sistema autogenerará el código (ej: <code>CH-ASRS-TA</code>, <code>CH-CST-M01</code>) y nombre oficial.</li>
+                    <li>Si el carro ya existe en la base de datos, se actualizarán sus datos y herramientas. Si no existe, se creará automáticamente.</li>
+                    <li>Las herramientas en las columnas de gavetas pueden ir separadas por comas (<code>,</code>), punto y coma (<code>;</code>) o saltos de línea.</li>
                 </ul>
             </div>
 

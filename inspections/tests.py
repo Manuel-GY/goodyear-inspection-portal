@@ -345,6 +345,44 @@ class ApiRestEndpointsTests(TestCase):
         self.assertIn('Área Final Finish', stats['areas'])
 
 
+from inspections.utils import generate_cart_code_and_name, parse_area
+
+
+class CartCodeAndNomenclatureTests(TestCase):
+    """Pruebas unitarias para la lógica de autogeneración de códigos y nombres de carros 5S."""
+
+    def test_auto_generation_turno(self):
+        meta = generate_cart_code_and_name("TURNO", "A", "ASRS")
+        self.assertEqual(meta['codigo_carro'], "CH-ASRS-TA")
+        self.assertEqual(meta['nombre_carro'], "Carro Turno A (ASRS)")
+        self.assertEqual(meta['categoria'], "TURNO")
+        self.assertEqual(meta['area'], "Área ASRS")
+
+    def test_auto_generation_mecanico(self):
+        meta = generate_cart_code_and_name("MECANICO", "1", "Construcción")
+        self.assertEqual(meta['codigo_carro'], "CH-CST-M01")
+        self.assertEqual(meta['nombre_carro'], "Carro Mecánico 01 (Construcción)")
+        self.assertEqual(meta['categoria'], "MECANICO")
+        self.assertEqual(meta['area'], "Área Construcción")
+
+    def test_auto_generation_electrico(self):
+        meta = generate_cart_code_and_name("ELECTRICO", "02", "Final Finish")
+        self.assertEqual(meta['codigo_carro'], "CH-FF-E02")
+        self.assertEqual(meta['nombre_carro'], "Carro Eléctrico 02 (Final Finish)")
+        self.assertEqual(meta['categoria'], "ELECTRICO")
+
+    def test_auto_generation_mecatronico(self):
+        meta = generate_cart_code_and_name("MECATRONICO", "01", "Banbury")
+        self.assertEqual(meta['codigo_carro'], "CH-BNB-MT01")
+        self.assertEqual(meta['nombre_carro'], "Carro Mecatrónico 01 (Banbury)")
+        self.assertEqual(meta['categoria'], "MECATRONICO")
+
+    def test_manual_override(self):
+        meta = generate_cart_code_and_name("TURNO", "A", "ASRS", manual_codigo="CH-CUSTOM-99", manual_nombre="Carro Personalizado")
+        self.assertEqual(meta['codigo_carro'], "CH-CUSTOM-99")
+        self.assertEqual(meta['nombre_carro'], "Carro Personalizado")
+
+
 class ExcelAndCSVImportExportTests(TestCase):
     """Pruebas para generación de plantilla y procesamiento de importaciones."""
 
@@ -352,7 +390,7 @@ class ExcelAndCSVImportExportTests(TestCase):
         self.client = Client()
 
     def test_download_excel_template(self):
-        """Verifica la generación y descarga de la plantilla Excel oficial."""
+        """Verifica la generación y descarga de la plantilla Excel oficial simplificada."""
         response = self.client.get(reverse('api_download_excel_template'))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -363,15 +401,16 @@ class ExcelAndCSVImportExportTests(TestCase):
         ws = wb.active
         self.assertEqual(ws.title, "Plantilla Carros 5S")
         headers = [cell.value for cell in ws[1]]
-        self.assertIn("codigo_carro", headers)
-        self.assertIn("nombre_carro", headers)
+        self.assertIn("tipo_carro", headers)
+        self.assertIn("turno_o_numero", headers)
+        self.assertIn("area", headers)
         self.assertIn("gaveta_1_herramientas", headers)
 
-    def test_import_csv_api(self):
-        """Verifica la importación masiva de carros y gavetas desde archivo CSV."""
+    def test_import_csv_api_auto_generation(self):
+        """Verifica que al importar CSV sin código, el sistema asigne el código y nombre automáticamente."""
         csv_content = (
-            "codigo_carro,nombre_carro,categoria,area,supervisor,ubicacion_especifica,gaveta_1_herramientas,gaveta_2_herramientas,gaveta_3_herramientas,gaveta_4_herramientas,gaveta_5_herramientas\n"
-            "CH-CSV-01,Carro CSV Test,MECANICO,Área ASRS,Juanito Arias,Pasillo 4,\"Llave 10, Llave 12\",\"Destornillador PH1, Destornillador PH2\",\"Martillo\",\"Flexometro\",\"Candado LOTO\"\n"
+            "tipo_carro,turno_o_numero,area,supervisor,ubicacion_especifica,gaveta_1_herramientas,gaveta_2_herramientas,gaveta_3_herramientas,gaveta_4_herramientas,gaveta_5_herramientas\n"
+            "TURNO,A,ASRS,Juanito Arias,Pasillo 4,\"Llave 10, Llave 12\",\"Destornillador PH1, Destornillador PH2\",\"Martillo\",\"Flexometro\",\"Candado LOTO\"\n"
         )
         csv_file = SimpleUploadedFile("carros_test.csv", csv_content.encode('utf-8-sig'), content_type="text/csv")
 
@@ -382,21 +421,21 @@ class ExcelAndCSVImportExportTests(TestCase):
         self.assertEqual(data['imported_carts'], 1)
         self.assertEqual(data['imported_tools'], 7)
 
-        # Verificar en base de datos
-        cart = ToolCart.objects.filter(codigo_carro="CH-CSV-01").first()
+        # Verificar que se autogeneró CH-ASRS-TA
+        cart = ToolCart.objects.filter(codigo_carro="CH-ASRS-TA").first()
         self.assertIsNotNone(cart)
-        self.assertEqual(cart.nombre_carro, "Carro CSV Test")
+        self.assertEqual(cart.nombre_carro, "Carro Turno A (ASRS)")
+        self.assertEqual(cart.categoria, "TURNO")
         self.assertEqual(cart.total_herramientas, 7)
         self.assertEqual(cart.tools.filter(numero_gaveta=1).count(), 2)
-        self.assertEqual(cart.tools.filter(numero_gaveta=2).count(), 2)
 
-    def test_import_excel_api(self):
-        """Verifica la importación masiva de carros desde archivo Excel (.xlsx)."""
+    def test_import_excel_api_auto_generation(self):
+        """Verifica que al importar Excel (.xlsx) sin código, autogenere el código oficial Goodyear."""
         wb = openpyxl.Workbook()
         ws = wb.active
-        headers = ["codigo_carro", "nombre_carro", "categoria", "area", "supervisor", "ubicacion_especifica", "gaveta_1_herramientas"]
+        headers = ["tipo_carro", "turno_o_numero", "area", "supervisor", "ubicacion_especifica", "gaveta_1_herramientas"]
         ws.append(headers)
-        ws.append(["CH-XLSX-01", "Carro XLSX Test", "TURNO", "Área Construcción", "Juanito Arias", "Bahía 2", "Llave Francesa; Alicate de Punta"])
+        ws.append(["MECANICO", "01", "Construcción", "Juanito Arias", "Bahía 2", "Llave Francesa; Alicate de Punta"])
         
         buffer = io.BytesIO()
         wb.save(buffer)
@@ -410,8 +449,11 @@ class ExcelAndCSVImportExportTests(TestCase):
         self.assertEqual(data['imported_carts'], 1)
         self.assertEqual(data['imported_tools'], 2)
 
-        cart = ToolCart.objects.filter(codigo_carro="CH-XLSX-01").first()
+        # Verificar que se autogeneró CH-CST-M01
+        cart = ToolCart.objects.filter(codigo_carro="CH-CST-M01").first()
         self.assertIsNotNone(cart)
+        self.assertEqual(cart.nombre_carro, "Carro Mecánico 01 (Construcción)")
+        self.assertEqual(cart.categoria, "MECANICO")
         self.assertEqual(cart.total_herramientas, 2)
 
 

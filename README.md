@@ -87,14 +87,17 @@ python manage.py export_template
 python manage.py import_excel plantilla_carros_goodyear.xlsx
 ```
 
-### 📋 Columnas de la Plantilla Excel:
-- `codigo_carro`: Identificador único (ej: `CH-ASRS-TA`, `CH-CST-M01`).
-- `nombre_carro`: Nombre descriptivo (ej: `Carro Turno A (ASRS)`).
-- `categoria`: `TURNO`, `MECANICO`, `ELECTRICO` o `MECATRONICO`.
-- `area`: `Área ASRS`, `Área Construcción`, `Área Final Finish`, etc.
+### 📋 Columnas de la Plantilla Excel (Asignación Automática de Códigos):
+- `tipo_carro`: `TURNO`, `MECANICO`, `ELECTRICO` o `MECATRONICO`.
+- `turno_o_numero`: `A`, `B`, `C`, `D` (para turnos) o `01`, `02` (para mecánicos/eléctricos/mecatrónicos).
+- `area`: `ASRS`, `Construcción`, `Final Finish`, `Banbury`, `Vulcanización`, etc.
 - `supervisor`: Supervisor responsable (ej: `Juanito Arias`).
 - `ubicacion_especifica`: Ubicación en la planta (ej: `Bahía 1 Pasillo Principal`).
-- `gaveta_1_herramientas` a `gaveta_5_herramientas`: Herramientas separadas por coma o salto de línea.
+- `gaveta_1_herramientas` a `gaveta_5_herramientas`: Herramientas separadas por coma (`,`), punto y coma (`;`) o salto de línea.
+- `codigo_carro_opcional`: *(Opcional)* Dejar vacío para autogenerar el código oficial Goodyear (ej: `CH-ASRS-TA`, `CH-CST-M01`).
+
+> [!TIP]
+> **Autogeneración:** El usuario no necesita calcular ni inventar los códigos `CH-...` ni el nombre del carro. El sistema los normaliza y asigna automáticamente respetando los estándares de planta Goodyear.
 
 ---
 

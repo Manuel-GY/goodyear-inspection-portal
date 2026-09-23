@@ -3,6 +3,7 @@ from django.urls import path
 from django.shortcuts import render, redirect
 from django.db import transaction
 from .models import ToolCart, DrawerTool, Inspection5S, InspectionMissingItem
+from .utils import generate_cart_code_and_name
 import io, csv
 
 try:
@@ -77,15 +78,17 @@ class ToolCartAdmin(admin.ModelAdmin):
                 col_map = {}
                 for idx, raw_col in enumerate(header):
                     col = str(raw_col).replace('_', ' ').replace('-', ' ').strip().lower()
-                    if 'codigo' in col or 'código' in col or 'id' in col:
+                    if 'tipo' in col or 'categor' in col:
+                        col_map['tipo'] = idx
+                    elif 'turno' in col or 'numero' in col or 'número' in col or 'nro' in col:
+                        col_map['turno_num'] = idx
+                    elif 'codigo' in col or 'código' in col or 'id' in col:
                         col_map['codigo'] = idx
-                    elif 'nombre' in col or 'carro' in col:
+                    elif 'nombre' in col:
                         col_map['nombre'] = idx
-                    elif 'categor' in col:
-                        col_map['categoria'] = idx
                     elif 'area' in col or 'área' in col:
                         col_map['area'] = idx
-                    elif 'superv' in col:
+                    elif 'superv' in col or 'responsable' in col:
                         col_map['supervisor'] = idx
                     elif 'ubicac' in col:
                         col_map['ubicacion'] = idx
@@ -100,8 +103,8 @@ class ToolCartAdmin(admin.ModelAdmin):
                     elif 'gaveta 5' in col or 'g5' in col or 'gaveta5' in col:
                         col_map['g5'] = idx
 
-                if 'codigo' not in col_map:
-                    messages.error(request, "No se encontró la columna 'codigo_carro' en el archivo.")
+                if 'tipo' not in col_map and 'codigo' not in col_map and 'area' not in col_map:
+                    messages.error(request, "No se encontraron columnas requeridas ('tipo_carro', 'area' o 'codigo_carro') en el archivo.")
                     return redirect('..')
 
                 imported_carts = 0
@@ -112,16 +115,28 @@ class ToolCartAdmin(admin.ModelAdmin):
                         if not any(row):
                             continue
 
-                        codigo = str(row[col_map['codigo']]).strip().upper() if col_map.get('codigo') is not None and row[col_map['codigo']] else ''
+                        raw_tipo = str(row[col_map['tipo']]).strip() if col_map.get('tipo') is not None and row[col_map['tipo']] else 'TURNO'
+                        raw_turno_num = str(row[col_map['turno_num']]).strip() if col_map.get('turno_num') is not None and row[col_map['turno_num']] else 'A'
+                        raw_area = str(row[col_map['area']]).strip() if col_map.get('area') is not None and row[col_map['area']] else 'Planta'
+                        manual_codigo = str(row[col_map['codigo']]).strip() if col_map.get('codigo') is not None and row[col_map['codigo']] else None
+                        manual_nombre = str(row[col_map['nombre']]).strip() if col_map.get('nombre') is not None and row[col_map['nombre']] else None
+
+                        cart_meta = generate_cart_code_and_name(
+                            tipo_carro=raw_tipo,
+                            turno_o_numero=raw_turno_num,
+                            area_input=raw_area,
+                            manual_codigo=manual_codigo,
+                            manual_nombre=manual_nombre
+                        )
+
+                        codigo = cart_meta['codigo_carro']
+                        nombre = cart_meta['nombre_carro']
+                        categoria = cart_meta['categoria']
+                        area_final = cart_meta['area']
+
                         if not codigo or codigo.lower() in ['none', 'null']:
                             continue
 
-                        nombre = str(row[col_map.get('nombre', 0)]).strip() if col_map.get('nombre') is not None and row[col_map.get('nombre')] else codigo
-                        categoria = str(row[col_map.get('categoria', 0)]).strip().upper() if col_map.get('categoria') is not None and row[col_map.get('categoria')] else 'TURNO'
-                        if categoria not in ['TURNO', 'MECANICO', 'ELECTRICO', 'MECATRONICO']:
-                            categoria = 'TURNO'
-
-                        area = str(row[col_map.get('area', 0)]).strip() if col_map.get('area') is not None and row[col_map.get('area')] else 'Planta Goodyear'
                         supervisor = str(row[col_map.get('supervisor', 0)]).strip() if col_map.get('supervisor') is not None and row[col_map.get('supervisor')] else 'Juanito Arias'
                         ubicacion = str(row[col_map.get('ubicacion', 0)]).strip() if col_map.get('ubicacion') is not None and row[col_map.get('ubicacion')] else 'Bahía de Mantenimiento'
 
@@ -131,7 +146,7 @@ class ToolCartAdmin(admin.ModelAdmin):
                                 'nombre_carro': nombre,
                                 'categoria': categoria,
                                 'especialidad_tipo': f"Carro {categoria}",
-                                'area': area,
+                                'area': area_final,
                                 'supervisor_responsable': supervisor,
                                 'ubicacion_especifica': ubicacion,
                             }

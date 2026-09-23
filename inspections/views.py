@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.conf import settings
 from .models import ToolCart, DrawerTool, Inspection5S, InspectionMissingItem
+from .utils import generate_cart_code_and_name
 import json
 import os
 import io
@@ -486,7 +487,7 @@ def api_reset_factory(request):
 
 def api_download_excel_template(request):
     """
-    GET: Genera y descarga un archivo Excel (.xlsx) con la plantilla oficial Goodyear.
+    GET: Genera y descarga un archivo Excel (.xlsx) con la plantilla oficial Goodyear simplificada.
     """
     if not HAS_OPENPYXL:
         return JsonResponse({"status": "error", "message": "openpyxl no está instalado en el servidor."}, status=500)
@@ -497,9 +498,8 @@ def api_download_excel_template(request):
         ws.title = "Plantilla Carros 5S"
 
         headers = [
-            "codigo_carro",
-            "nombre_carro",
-            "categoria",
+            "tipo_carro",
+            "turno_o_numero",
             "area",
             "supervisor",
             "ubicacion_especifica",
@@ -507,7 +507,8 @@ def api_download_excel_template(request):
             "gaveta_2_herramientas",
             "gaveta_3_herramientas",
             "gaveta_4_herramientas",
-            "gaveta_5_herramientas"
+            "gaveta_5_herramientas",
+            "codigo_carro_opcional"
         ]
         ws.append(headers)
 
@@ -520,37 +521,50 @@ def api_download_excel_template(request):
             bottom=Side(style='thin', color='CBD5E1')
         )
 
-        for col_num, cell in enumerate(ws[1], 1):
+        for cell in ws[1]:
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
         sample_rows = [
             [
-                "CH-ASRS-TA",
-                "Carro Turno A (ASRS)",
                 "TURNO",
-                "Área ASRS",
+                "A",
+                "ASRS",
                 "Juanito Arias",
                 "Pasillo Principal Bahía 1",
                 "Juego Llaves Combinadas 8-24mm, Chicharra 1/2\", Dados de Impacto 17-21mm",
                 "Destornillador Paleta 6x100mm, Destornillador Cruz PH2, Alicate Universal 8\"",
                 "Martillo de Bola 500g, Martillo de Goma, Cincel Plano, Cepillo de Acero",
                 "Cinta Métrica 5m, Flexómetro de Trabajo, Manguera Neumática, Pistola de Aire",
-                "Candados LOTO Rojos (2 un), Pinza Bloqueo, Tarjeta 5S, Gafas de Seguridad"
+                "Candados LOTO Rojos (2 un), Pinza Bloqueo, Tarjeta 5S, Gafas de Seguridad",
+                ""
             ],
             [
-                "CH-CST-M01",
-                "Carro Mecánico 01 (Construcción)",
                 "MECANICO",
-                "Área Construcción",
+                "01",
+                "Construcción",
                 "Juanito Arias",
                 "Bahía Mantenimiento Construcción",
                 "Juego Dados 1/2\" Heavy Duty (8-32mm), Chicharra Pesada 1/2\", Palanca de Fuerza",
                 "Extractor de Rodamientos 3 Patas, Llaves Corona 10-24mm, Llave Ajustable 12\"",
                 "Arco de Sierra Profesional, Cinceles Planos, Limas de Ajuste, Llave Stilson 14\"",
                 "Pistola Neumática de Impacto 1/2\", Manómetro Digital, Aceite Lubricante",
-                "Torquímetro Calibrado 1/2\" (20-200 Nm), Pie de Metro Digital, Kit LOTO"
+                "Torquímetro Calibrado 1/2\" (20-200 Nm), Pie de Metro Digital, Kit LOTO",
+                ""
+            ],
+            [
+                "ELECTRICO",
+                "01",
+                "Final Finish",
+                "Juanito Arias",
+                "Bahía Eléctrica Final Finish",
+                "Juego Destornilladores 1000V VDE (PH0-PH3, SL3-SL6), Pelacables Automático",
+                "Multímetro Digital Fluke Calibrado, Pinza Amperimétrica True RMS",
+                "Crimpador Terminales Eléctricos, Alicate de Punta VDE, Cautín 60W",
+                "Guantes Dieléctricos Clase 0 (1000V), Detector de Tensión Sin Contacto",
+                "Candados LOTO Dieléctricos, Tarjetas de Advertencia Eléctrica, Lentes",
+                ""
             ]
         ]
 
@@ -563,7 +577,7 @@ def api_download_excel_template(request):
                 cell.border = thin_border
                 cell.alignment = Alignment(vertical="center", wrap_text=True)
 
-        column_widths = [16, 32, 16, 22, 20, 30, 45, 45, 45, 45, 45]
+        column_widths = [16, 16, 20, 20, 28, 42, 42, 42, 42, 42, 24]
         for idx, width in enumerate(column_widths, 1):
             ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
 
@@ -585,6 +599,7 @@ def api_download_excel_template(request):
 def api_import_excel(request):
     """
     POST: Importa carros y herramientas desde un archivo Excel (.xlsx) o CSV subido en multipart/form-data (transaccional).
+    Autogenera códigos y nombres normalizados según nomenclatura Goodyear.
     """
     if request.method == 'POST':
         if 'file' not in request.FILES:
@@ -618,15 +633,17 @@ def api_import_excel(request):
             col_map = {}
             for idx, raw_col in enumerate(header):
                 col = str(raw_col).replace('_', ' ').replace('-', ' ').strip().lower()
-                if 'codigo' in col or 'código' in col or 'id' in col:
+                if 'tipo' in col or 'categor' in col:
+                    col_map['tipo'] = idx
+                elif 'turno' in col or 'numero' in col or 'número' in col or 'nro' in col:
+                    col_map['turno_num'] = idx
+                elif 'codigo' in col or 'código' in col or 'id' in col:
                     col_map['codigo'] = idx
-                elif 'nombre' in col or 'carro' in col:
+                elif 'nombre' in col:
                     col_map['nombre'] = idx
-                elif 'categor' in col:
-                    col_map['categoria'] = idx
                 elif 'area' in col or 'área' in col:
                     col_map['area'] = idx
-                elif 'superv' in col:
+                elif 'superv' in col or 'responsable' in col:
                     col_map['supervisor'] = idx
                 elif 'ubicac' in col:
                     col_map['ubicacion'] = idx
@@ -641,8 +658,8 @@ def api_import_excel(request):
                 elif 'gaveta 5' in col or 'g5' in col or 'gaveta5' in col:
                     col_map['g5'] = idx
 
-            if 'codigo' not in col_map:
-                return JsonResponse({"status": "error", "message": "No se encontró la columna 'codigo_carro' en el archivo."}, status=400)
+            if 'tipo' not in col_map and 'codigo' not in col_map and 'area' not in col_map:
+                return JsonResponse({"status": "error", "message": "No se encontraron columnas requeridas ('tipo_carro', 'area' o 'codigo_carro') en el archivo."}, status=400)
 
             imported_carts = 0
             imported_tools = 0
@@ -652,16 +669,28 @@ def api_import_excel(request):
                     if not any(row):
                         continue
 
-                    codigo = str(row[col_map['codigo']]).strip().upper() if col_map.get('codigo') is not None and row[col_map['codigo']] else ''
+                    raw_tipo = str(row[col_map['tipo']]).strip() if col_map.get('tipo') is not None and row[col_map['tipo']] else 'TURNO'
+                    raw_turno_num = str(row[col_map['turno_num']]).strip() if col_map.get('turno_num') is not None and row[col_map['turno_num']] else 'A'
+                    raw_area = str(row[col_map['area']]).strip() if col_map.get('area') is not None and row[col_map['area']] else 'Planta'
+                    manual_codigo = str(row[col_map['codigo']]).strip() if col_map.get('codigo') is not None and row[col_map['codigo']] else None
+                    manual_nombre = str(row[col_map['nombre']]).strip() if col_map.get('nombre') is not None and row[col_map['nombre']] else None
+
+                    cart_meta = generate_cart_code_and_name(
+                        tipo_carro=raw_tipo,
+                        turno_o_numero=raw_turno_num,
+                        area_input=raw_area,
+                        manual_codigo=manual_codigo,
+                        manual_nombre=manual_nombre
+                    )
+
+                    codigo = cart_meta['codigo_carro']
+                    nombre = cart_meta['nombre_carro']
+                    categoria = cart_meta['categoria']
+                    area_final = cart_meta['area']
+
                     if not codigo or codigo.lower() in ['none', 'null']:
                         continue
 
-                    nombre = str(row[col_map.get('nombre', 0)]).strip() if col_map.get('nombre') is not None and row[col_map.get('nombre')] else codigo
-                    categoria = str(row[col_map.get('categoria', 0)]).strip().upper() if col_map.get('categoria') is not None and row[col_map.get('categoria')] else 'TURNO'
-                    if categoria not in ['TURNO', 'MECANICO', 'ELECTRICO', 'MECATRONICO']:
-                        categoria = 'TURNO'
-
-                    area = str(row[col_map.get('area', 0)]).strip() if col_map.get('area') is not None and row[col_map.get('area')] else 'Planta Goodyear'
                     supervisor = str(row[col_map.get('supervisor', 0)]).strip() if col_map.get('supervisor') is not None and row[col_map.get('supervisor')] else 'Juanito Arias'
                     ubicacion = str(row[col_map.get('ubicacion', 0)]).strip() if col_map.get('ubicacion') is not None and row[col_map.get('ubicacion')] else 'Bahía de Mantenimiento'
 
@@ -671,7 +700,7 @@ def api_import_excel(request):
                             'nombre_carro': nombre,
                             'categoria': categoria,
                             'especialidad_tipo': f"Carro {categoria}",
-                            'area': area,
+                            'area': area_final,
                             'supervisor_responsable': supervisor,
                             'ubicacion_especifica': ubicacion,
                         }
