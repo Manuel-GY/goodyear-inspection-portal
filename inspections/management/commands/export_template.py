@@ -5,7 +5,11 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 class Command(BaseCommand):
     help = 'Genera la plantilla Excel oficial de Goodyear (plantilla_carros_goodyear.xlsx) con asignación automática de códigos'
 
+    def add_arguments(self, parser):
+        parser.add_argument('--output', type=str, default='plantilla_carros_goodyear.xlsx', help='Ruta donde guardar el archivo Excel generado')
+
     def handle(self, *args, **options):
+        output_path = options.get('output', 'plantilla_carros_goodyear.xlsx')
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Plantilla Carros 5S"
@@ -98,6 +102,10 @@ class Command(BaseCommand):
         for idx, width in enumerate(column_widths, 1):
             ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = width
 
-        output_path = "plantilla_carros_goodyear.xlsx"
-        wb.save(output_path)
-        self.stdout.write(self.style.SUCCESS(f"Plantilla Excel generada exitosamente en: {output_path}"))
+        try:
+            wb.save(output_path)
+            self.stdout.write(self.style.SUCCESS(f"Plantilla Excel generada exitosamente en: {output_path}"))
+        except PermissionError:
+            alt_path = f"plantilla_carros_goodyear_nueva.xlsx"
+            wb.save(alt_path)
+            self.stdout.write(self.style.WARNING(f"El archivo '{output_path}' está actualmente abierto en Excel. Se guardó como: {alt_path}"))

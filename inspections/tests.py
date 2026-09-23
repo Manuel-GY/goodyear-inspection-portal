@@ -482,6 +482,9 @@ class ManagementCommandsTests(TestCase):
 
     def test_export_template_command(self):
         """Verifica la ejecución del comando export_template."""
-        call_command('export_template')
+        test_file = "plantilla_carros_test_export.xlsx"
+        call_command('export_template', output=test_file)
         import os
-        self.assertTrue(os.path.exists("plantilla_carros_goodyear.xlsx"))
+        self.assertTrue(os.path.exists(test_file))
+        if os.path.exists(test_file):
+            os.remove(test_file)

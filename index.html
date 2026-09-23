@@ -3895,7 +3895,7 @@
             document.getElementById('cartQRCardName').textContent = item.name;
             document.getElementById('cartQRCardArea').textContent = `${item.area} • Planta Goodyear`;
             document.getElementById('cartQRCardId').textContent = cartId;
-            document.getElementById('cartQRCardSupervisor').textContent = `Sup: ${item.supervisor || 'Juanito Arias'}`;
+            document.getElementById('cartQRCardSupervisor').textContent = `Supervisor: ${item.supervisor || 'Juanito Arias'}`;
 
             // Generar la URL directa con parámetro ?cart=ID
             const baseUrl = window.location.origin + window.location.pathname;
@@ -4393,7 +4393,7 @@
                         <img class="qr-img" src="${qrDataUrl}" alt="QR Carro" />
                         <div class="footer-badge">
                             <span class="code">${currentQRModalCartId}</span>
-                            <span>Sup: ${item.supervisor || 'Juanito Arias'}</span>
+                            <span>Supervisor: ${item.supervisor || 'Juanito Arias'}</span>
                         </div>
                         <div class="inst">Escanee este código QR para abrir la inspección 5S de este carro.</div>
                     </div>
@@ -4463,7 +4463,7 @@
                             </div>
                             <div class="footer-badge">
                                 <span class="code">${cartId}</span>
-                                <span class="sup">Sup: ${item.supervisor || 'Juanito Arias'}</span>
+                                <span class="sup">Supervisor: ${item.supervisor || 'Juanito Arias'}</span>
                             </div>
                         </div>
                         <div class="inst">Escanee con pistola Falcon o celular para inspección</div>
@@ -5093,7 +5093,7 @@
                     <!-- CODIGO Y SUPERVISOR -->
                     <div class="bg-slate-50 p-2 rounded-xl border border-slate-200 flex justify-between items-center text-[11px]">
                         <span class="font-mono font-bold text-goodyear-navy bg-yellow-100 px-2.5 py-1 rounded" id="cartQRCardId">CH-ASRS-TA</span>
-                        <span class="font-bold text-slate-700" id="cartQRCardSupervisor">Sup: Juanito Arias</span>
+                        <span class="font-bold text-slate-700" id="cartQRCardSupervisor">Supervisor: Juanito Arias</span>
                     </div>
 
                     <div class="text-[10px] text-slate-400 italic">Escanee con cámara o pistola Falcon X4 para abrir la inspección de este carro.</div>
