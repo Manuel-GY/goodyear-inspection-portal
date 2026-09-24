@@ -11,13 +11,14 @@ Sistema integral web y móvil de gestión, auditoría 5S y control centralizado 
 | Tipo de Acceso | URL | Usuario / Rol | Contraseña |
 | :--- | :--- | :--- | :--- |
 | **Portal Principal 5S** | `http://localhost:8000` | Operadores / Inspectores | *Acceso Libre* |
-| **Módulo Admin en Portal** | Pestaña **Administrador** | Usuario staff de Django | Inicio de sesión del servidor |
+| **Módulo Admin en Portal** | Botón **Acceso administrativo** (pie de página) | Usuario y contraseña LDAP corporativos | Validados por la API LDAP de planta |
 | **Django Admin Backoffice** | `http://localhost:8000/admin` | Usuario staff creado por el administrador | Configurada fuera del repositorio |
 
 El portal de inspección es público. Las operaciones de administración del portal
-requieren una sesión autenticada por la API LDAP corporativa. El usuario LDAP no
-necesita conocer Django ni acceder al backoffice `/admin/`. No se almacenan
-credenciales en el repositorio.
+se autentican contra la API LDAP corporativa (`http://10.107.194.110:8080/api/login-ldap/`
+por defecto, configurable con `LDAP_AUTH_API_URL`). El usuario LDAP no necesita
+conocer Django ni acceder al backoffice `/admin/`. No se almacenan credenciales
+en el repositorio.
 
 ---
 
@@ -35,11 +36,12 @@ credenciales en el repositorio.
    $env:DJANGO_DEBUG = "True" # Solo desarrollo local
    $env:DJANGO_ALLOWED_HOSTS = "servidor-goodyear,localhost"
    $env:CORS_ALLOWED_ORIGINS = "https://servidor-goodyear"
-   $env:LDAP_AUTH_API_URL = "https://servidor-ldap/api/login-ldap/"
    ```
-   En producción, use `DJANGO_DEBUG=False`, una clave secreta real y una URL
-   LDAP `https://`. La aplicación rechaza configuraciones de producción sin
-   clave secreta o con LDAP sobre HTTP.
+   La API LDAP corporativa (`http://10.107.194.110:8080/api/login-ldap/`) ya
+   viene configurada por defecto para el login administrativo del portal. Solo
+   defina `LDAP_AUTH_API_URL` si necesita usar una dirección distinta.
+   En producción use `DJANGO_DEBUG=False` y una clave secreta real; la
+   aplicación rechaza iniciar sin `DJANGO_SECRET_KEY` fuera de modo desarrollo.
 
 3. **Aplicar migraciones y cargar los 28 carros oficiales de Goodyear**:
    ```bash

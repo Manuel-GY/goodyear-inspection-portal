@@ -95,11 +95,11 @@ CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = bool(CORS_ALLOWED_ORIGINS)
-LDAP_AUTH_API_URL = os.environ.get('LDAP_AUTH_API_URL', '')
+LDAP_AUTH_API_URL = os.environ.get(
+    'LDAP_AUTH_API_URL',
+    'http://10.107.194.110:8080/api/login-ldap/'
+)
 LDAP_AUTH_API_TIMEOUT = float(os.environ.get('LDAP_AUTH_API_TIMEOUT', '10'))
-
-if not DEBUG and LDAP_AUTH_API_URL and not LDAP_AUTH_API_URL.lower().startswith('https://'):
-    raise ValueError('LDAP_AUTH_API_URL must use HTTPS when DJANGO_DEBUG is False.')
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
