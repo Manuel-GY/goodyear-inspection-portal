@@ -6,13 +6,17 @@ Sistema integral web y móvil de gestión, auditoría 5S y control centralizado 
 
 ---
 
-## 🔑 Credenciales y Accesos
+## 🔑 Accesos
 
 | Tipo de Acceso | URL | Usuario / Rol | Contraseña |
 | :--- | :--- | :--- | :--- |
 | **Portal Principal 5S** | `http://localhost:8000` | Operadores / Inspectores | *Acceso Libre* |
-| **Módulo Admin en Portal** | Pestaña **Administrador** | `ac17157` / `aa09876` | *Validación LDAP* |
-| **Django Admin Backoffice** | `http://localhost:8000/admin` | **`admin`** | **`Goodyear5S2026!`** |
+| **Módulo Admin en Portal** | Pestaña **Administrador** | Usuario staff de Django | Inicio de sesión del servidor |
+| **Django Admin Backoffice** | `http://localhost:8000/admin` | Usuario staff creado por el administrador | Configurada fuera del repositorio |
+
+El portal de inspección es público. Las operaciones de administración requieren una
+sesión de usuario Django con `is_staff=True`. No se almacenan credenciales en el
+repositorio; cree el primer usuario con `python manage.py createsuperuser`.
 
 ---
 
@@ -23,18 +27,34 @@ Sistema integral web y móvil de gestión, auditoría 5S y control centralizado 
    pip install -r requirements.txt
    ```
 
-2. **Aplicar migraciones y cargar los 28 carros oficiales de Goodyear**:
+2. **Configurar el entorno** (en producción no use los valores de desarrollo):
+   ```bash
+   # PowerShell
+   $env:DJANGO_SECRET_KEY = "genere-una-clave-larga-y-aleatoria"
+   $env:DJANGO_DEBUG = "False"
+   $env:DJANGO_ALLOWED_HOSTS = "servidor-goodyear,localhost"
+   $env:CORS_ALLOWED_ORIGINS = "https://servidor-goodyear"
+   ```
+
+3. **Aplicar migraciones y cargar los 28 carros oficiales de Goodyear**:
    ```bash
    python manage.py migrate
    python manage.py seed_data
    ```
 
-3. **Ejecutar conjunto de pruebas automatizadas (Tests Unitarios)**:
+4. **Crear el usuario administrativo fuera del repositorio**:
+   ```bash
+   python manage.py createsuperuser
+   ```
+   El usuario debe iniciar sesión en `/admin/`. Solo las cuentas Django con
+   `is_staff=True` pueden editar la flota, importar archivos o restablecer datos.
+
+5. **Ejecutar conjunto de pruebas automatizadas (Tests Unitarios)**:
    ```bash
    python manage.py test
    ```
 
-4. **Iniciar el servidor para toda la red de la planta**:
+6. **Iniciar el servidor para toda la red de la planta**:
    ```bash
    python manage.py runserver 0.0.0.0:8000
    ```
@@ -74,6 +94,9 @@ El sistema cuenta con un motor adaptativo para tres perfiles de hardware en plan
 ## 📊 Migración e Importación Masiva desde Excel / CSV
 
 ### Método 1: Desde la Interfaz Web
+
+La importación y edición desde la interfaz requieren iniciar sesión como usuario
+administrativo. La pestaña de administración no se muestra a visitantes públicos.
 1. En la pestaña **Flota de Carros** o en el **Editor de Gavetas**, haz clic en **`📥 Importar Excel / CSV`**.
 2. Haz clic en **`Descargar Plantilla .xlsx`** para obtener el archivo modelo oficial.
 3. Completa los datos en Excel, selecciona el archivo y presiona **`Iniciar Importación`**.

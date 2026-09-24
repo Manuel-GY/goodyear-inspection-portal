@@ -304,7 +304,7 @@
                     <i class="fa-solid fa-clock-rotate-left text-sm sm:text-base"></i>
                     Historial de Auditorías
                 </button>
-                <button onclick="switchTab('admin')" id="tab-admin" class="tab-btn border-b-4 border-transparent text-slate-400 font-bold py-2.5 sm:py-3.5 px-4 sm:px-6 text-[11px] sm:text-xs uppercase tracking-wider flex items-center gap-1.5 sm:gap-2 hover:bg-goodyear-navy hover:text-white transition shrink-0">
+                <button onclick="switchTab('admin')" id="tab-admin" class="tab-btn hidden border-b-4 border-transparent text-slate-400 font-bold py-2.5 sm:py-3.5 px-4 sm:px-6 text-[11px] sm:text-xs uppercase tracking-wider flex items-center gap-1.5 sm:gap-2 hover:bg-goodyear-navy hover:text-white transition shrink-0">
                     <i class="fa-solid fa-user-shield text-sm sm:text-base text-goodyear-gold"></i>
                     Administración / Flota <span id="adminLockBadge" class="text-[9px] sm:text-[10px] bg-amber-400 text-goodyear-navy px-1 py-0.5 rounded font-black"><i class="fa-solid fa-lock"></i></span>
                 </button>
@@ -1066,13 +1066,13 @@
         </div>
     </div>
 
-    <!-- MODAL DE AUTENTICACIÓN LDAP GOODYEAR -->
+    <!-- MODAL DE ACCESO ADMINISTRATIVO DJANGO -->
     <div id="authModal" onclick="if(event.target === this) closeAuthModal()" class="hidden fixed inset-0 z-50 bg-goodyear-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
         <div class="bg-white rounded-2xl max-w-md w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-slate-200 my-auto">
             <div class="bg-goodyear-navy text-white px-6 py-4 flex justify-between items-center border-b border-goodyear-gold/30">
                 <div class="flex items-center gap-3">
                     <img src="/static/logo-goodyear.png" onerror="this.onerror=null; this.src='logo-goodyear.png';" alt="Goodyear Logo" class="h-6 w-auto object-contain" />
-                    <h3 class="font-bold text-sm tracking-wide text-goodyear-gold">Autenticación LDAP Goodyear</h3>
+                    <h3 class="font-bold text-sm tracking-wide text-goodyear-gold">Acceso administrativo</h3>
                 </div>
                 <button onclick="closeAuthModal()" class="text-white hover:text-goodyear-gold text-xl font-bold">&times;</button>
             </div>
@@ -1080,7 +1080,7 @@
             <form id="ldapLoginForm" onsubmit="handleLDAPLogin(event)" class="p-6 space-y-4 text-xs">
                 <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-slate-600 leading-relaxed">
                     <i class="fa-solid fa-shield-halved text-goodyear-navy mr-1"></i>
-                    Ingrese sus credenciales corporativas LDAP para acceder al módulo de edición de carros.
+                    El acceso administrativo se gestiona mediante la pantalla segura del servidor.
                 </div>
 
                 <div id="ldapErrorMsg" class="hidden bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-xs font-medium flex items-center gap-2">
@@ -1089,17 +1089,17 @@
                 </div>
 
                 <div>
-                    <label class="block text-xs font-bold uppercase text-goodyear-navy mb-1">Usuario LDAP (ID Corporativo) *</label>
+                    <label class="block text-xs font-bold uppercase text-goodyear-navy mb-1">Usuario administrativo</label>
                     <div class="relative">
-                        <input type="text" id="ldapUsername" required placeholder="ej: Usuario LDAP" class="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-goodyear-navy uppercase focus:ring-2 focus:ring-goodyear-navy">
+                        <input type="text" id="ldapUsername" autocomplete="username" placeholder="Usuario" class="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-goodyear-navy uppercase focus:ring-2 focus:ring-goodyear-navy">
                         <i class="fa-solid fa-user absolute left-3 top-3 text-slate-400"></i>
                     </div>
                 </div>
 
                 <div>
-                    <label class="block text-xs font-bold uppercase text-goodyear-navy mb-1">Contraseña LDAP *</label>
+                    <label class="block text-xs font-bold uppercase text-goodyear-navy mb-1">Contraseña</label>
                     <div class="relative">
-                        <input type="password" id="ldapPassword" required placeholder="Contraseña de red Goodyear" class="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-goodyear-navy">
+                        <input type="password" id="ldapPassword" autocomplete="current-password" placeholder="Contraseña" class="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-goodyear-navy">
                         <i class="fa-solid fa-key absolute left-3 top-3 text-slate-400"></i>
                     </div>
                 </div>
@@ -1109,7 +1109,7 @@
                         Cancelar
                     </button>
                     <button type="submit" id="ldapSubmitBtn" class="bg-goodyear-navy hover:bg-goodyear-darknavy text-goodyear-gold font-bold px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider shadow flex items-center gap-2">
-                        <i class="fa-solid fa-right-to-bracket"></i> Iniciar Sesión LDAP
+                        <i class="fa-solid fa-right-to-bracket"></i> Iniciar sesión
                     </button>
                 </div>
             </form>
@@ -3359,24 +3359,24 @@
             }
         }
 
-        // ==================== AUTENTICACIÓN LDAP Y PRIVILEGIOS DE ADMIN ====================
-        const AUTHORIZED_ADMIN_USERS = ['aa09876', 'ac17157'];
+        // ==================== AUTENTICACIÓN DEL ADMINISTRADOR DJANGO ====================
         let isLDAPAdminLoggedIn = false;
         let loggedInLDAPUser = '';
 
-        function checkLDAPAdminSession() {
-            const savedAdmin = localStorage.getItem('gy_ldap_admin_user');
-            const isLogged = localStorage.getItem('gy_ldap_admin_logged') === 'true';
-            const sessionExpiry = parseInt(localStorage.getItem('gy_ldap_admin_expiry') || '0', 10);
-
-            if (isLogged && (!sessionExpiry || Date.now() > sessionExpiry)) {
-                logoutLDAPAdmin();
-                return;
-            }
-
-            if (isLogged && savedAdmin && AUTHORIZED_ADMIN_USERS.includes(savedAdmin.toLowerCase())) {
-                isLDAPAdminLoggedIn = true;
-                loggedInLDAPUser = savedAdmin.toLowerCase();
+        async function checkLDAPAdminSession() {
+            try {
+                const response = await fetch('/api/admin-status/', {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const status = await response.json();
+                isLDAPAdminLoggedIn = status.authenticated === true && status.is_staff === true;
+                loggedInLDAPUser = isLDAPAdminLoggedIn ? 'ADMIN' : '';
+                const adminTab = document.getElementById('tab-admin');
+                if (adminTab) adminTab.classList.toggle('hidden', !isLDAPAdminLoggedIn);
+                updateLDAPHeaderUI();
+            } catch (error) {
+                isLDAPAdminLoggedIn = false;
+                loggedInLDAPUser = '';
                 updateLDAPHeaderUI();
             }
         }
@@ -3650,71 +3650,13 @@
             btn.disabled = true;
             errorContainer.classList.add('hidden');
 
-            if (!AUTHORIZED_ADMIN_USERS.includes(usernameInput)) {
-                errorText.textContent = `Acceso denegado. El usuario '${usernameInput.toUpperCase()}' no tiene privilegios de administrador para editar carros.`;
-                errorContainer.classList.remove('hidden');
-                btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Iniciar Sesión LDAP';
-                btn.disabled = false;
-                return;
-            }
-
-            try {
-                const response = await fetch("http://10.107.194.110:8080/api/login-ldap/", {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: usernameInput, password: passwordInput })
-                });
-
-                let ldapResult = {};
-                if (response) {
-                    try { ldapResult = await response.json() || {}; } catch(parseErr) { ldapResult = {}; }
-                }
-
-                if (!response || !response.ok || ldapResult.status !== 'ok') {
-                    errorText.textContent = ldapResult.message || ldapResult.error || "Credenciales LDAP incorrectas. La contraseña ingresada es inválida para este usuario corporativo.";
-                    errorContainer.classList.remove('hidden');
-                    btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Iniciar Sesión LDAP';
-                    btn.disabled = false;
-                    return;
-                }
-
-                if (ldapResult.is_admin !== undefined && ldapResult.is_admin !== true) {
-                    errorText.textContent = "Acceso denegado. Su cuenta LDAP no tiene privilegios de administrador.";
-                    errorContainer.classList.remove('hidden');
-                    btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Iniciar Sesión LDAP';
-                    btn.disabled = false;
-                    return;
-                }
-
-                isLDAPAdminLoggedIn = true;
-                loggedInLDAPUser = usernameInput;
-                const adminDisplayName = (ldapResult.full_name || ldapResult.first_name || '').toString().trim();
-                const sessionExpiry = Date.now() + (30 * 60 * 1000);
-                localStorage.setItem('gy_ldap_admin_user', usernameInput);
-                localStorage.setItem('gy_ldap_admin_logged', 'true');
-                localStorage.setItem('gy_ldap_admin_expiry', sessionExpiry.toString());
-
-                updateLDAPHeaderUI();
-                closeAuthModal();
-
-                showToast("Sesión LDAP Iniciada", `Bienvenido ${adminDisplayName ? adminDisplayName + ' ' : 'Admin '}(${usernameInput.toUpperCase()}). Módulo de edición habilitado.`);
-                switchTab('admin');
-
-            } catch (err) {
-                errorText.textContent = "Error de red al autenticar credenciales LDAP. Verifique su conexión a la red corporativa.";
-                errorContainer.classList.remove('hidden');
-            } finally {
-                btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Iniciar Sesión LDAP';
-                btn.disabled = false;
-            }
+            window.location.href = '/admin/login/?next=/';
         }
 
         function logoutLDAPAdmin() {
             isLDAPAdminLoggedIn = false;
             loggedInLDAPUser = '';
-            localStorage.removeItem('gy_ldap_admin_user');
-            localStorage.removeItem('gy_ldap_admin_logged');
-            localStorage.removeItem('gy_ldap_admin_expiry');
+            window.location.href = '/admin/logout/';
             updateLDAPHeaderUI();
             showToast("Sesión Cerrada", "Has salido del modo edición de carros.");
             if (currentDeviceMode === 'DESKTOP') {

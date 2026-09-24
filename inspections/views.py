@@ -10,6 +10,7 @@ import json
 import os
 import io
 import csv
+from functools import wraps
 
 try:
     import openpyxl
@@ -17,6 +18,27 @@ try:
     HAS_OPENPYXL = True
 except ImportError:
     HAS_OPENPYXL = False
+
+
+def staff_required_for_methods(*protected_methods):
+    """Require an authenticated staff user only for mutating API methods."""
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapped(request, *args, **kwargs):
+            if request.method in protected_methods:
+                if not request.user.is_authenticated:
+                    return JsonResponse(
+                        {"status": "error", "message": "Autenticación administrativa requerida."},
+                        status=401
+                    )
+                if not request.user.is_staff:
+                    return JsonResponse(
+                        {"status": "error", "message": "No tiene permisos administrativos."},
+                        status=403
+                    )
+            return view_func(request, *args, **kwargs)
+        return wrapped
+    return decorator
 
 
 def index_view(request):
@@ -34,6 +56,14 @@ def logo_view(request):
     return HttpResponse(status=404)
 
 
+def api_admin_status(request):
+    """Indica si la sesión actual puede acceder a la administración del portal."""
+    return JsonResponse({
+        "authenticated": request.user.is_authenticated,
+        "is_staff": request.user.is_staff,
+    })
+
+
 def api_drawer_structure(request):
     """Devuelve la estructura de herramientas estándar por categoría (TURNO, MECANICO, ELECTRICO, MECATRONICO)."""
     from .management.commands.seed_data import DRAWER_STRUCTURE
@@ -41,6 +71,7 @@ def api_drawer_structure(request):
 
 
 @csrf_exempt
+@staff_required_for_methods('POST')
 def api_carts_list_create(request):
     """
     GET: Listado completo de carros de herramientas con conteos y gavetas.
@@ -141,6 +172,7 @@ def api_carts_list_create(request):
 
 
 @csrf_exempt
+@staff_required_for_methods('PUT', 'PATCH', 'DELETE')
 def api_cart_detail_update_delete(request, cart_id):
     """
     GET: Detalle de un carro con todas sus herramientas organizadas por gaveta (1 a 5).
@@ -230,6 +262,7 @@ def api_cart_detail_update_delete(request, cart_id):
 
 
 @csrf_exempt
+@staff_required_for_methods('POST')
 def api_cart_drawer_tools(request, cart_id, drawer_num):
     """
     POST: Actualiza el listado completo de herramientas de una gaveta específica (1 a 5) de forma atómica.
@@ -464,6 +497,7 @@ def api_dashboard_stats(request):
 
 
 @csrf_exempt
+@staff_required_for_methods('POST')
 def api_reset_factory(request):
     """
     POST: Restablece todos los carros y herramientas al estado inicial de fábrica (28 carros oficiales).
@@ -596,6 +630,7 @@ def api_download_excel_template(request):
 
 
 @csrf_exempt
+@staff_required_for_methods('POST')
 def api_import_excel(request):
     """
     POST: Importa carros y herramientas desde un archivo Excel (.xlsx) o CSV subido en multipart/form-data (transaccional).

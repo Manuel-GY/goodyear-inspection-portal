@@ -2,6 +2,7 @@ from django.test import TestCase, Client
 from django.urls import reverse
 from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.contrib.auth.models import User
 from inspections.models import ToolCart, DrawerTool, Inspection5S, InspectionMissingItem
 import json
 import io
@@ -125,6 +126,13 @@ class ApiRestEndpointsTests(TestCase):
 
     def setUp(self):
         self.client = Client()
+        self.admin_user = User.objects.create_user(
+            username="test-admin",
+            password="test-password",
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.client.force_login(self.admin_user)
         self.cart = ToolCart.objects.create(
             codigo_carro="CH-API-01",
             nombre_carro="Carro API Test",
@@ -160,6 +168,23 @@ class ApiRestEndpointsTests(TestCase):
         self.assertIn('MECANICO', data['drawers'])
         self.assertIn('ELECTRICO', data['drawers'])
         self.assertIn('MECATRONICO', data['drawers'])
+
+    def test_admin_status_requires_staff_for_mutations(self):
+        public_client = Client()
+        status_response = public_client.get(reverse('api_admin_status'))
+        self.assertEqual(status_response.status_code, 200)
+        self.assertFalse(status_response.json()['is_staff'])
+
+        response = public_client.post(
+            reverse('api_carts_list_create'),
+            data=json.dumps({
+                "codigo_carro": "CH-UNAUTHORIZED",
+                "nombre_carro": "No debe crearse",
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(ToolCart.objects.filter(codigo_carro="CH-UNAUTHORIZED").exists())
 
     def test_api_carts_get_and_post(self):
         """Verifica GET y POST en /api/carts/."""
@@ -388,6 +413,13 @@ class ExcelAndCSVImportExportTests(TestCase):
 
     def setUp(self):
         self.client = Client()
+        admin_user = User.objects.create_user(
+            username="excel-admin",
+            password="test-password",
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.client.force_login(admin_user)
 
     def test_download_excel_template(self):
         """Verifica la generación y descarga de la plantilla Excel oficial simplificada."""
@@ -476,6 +508,13 @@ class ManagementCommandsTests(TestCase):
 
         # Probar endpoint api_reset_factory
         client = Client()
+        admin_user = User.objects.create_user(
+            username="reset-admin",
+            password="test-password",
+            is_staff=True,
+            is_superuser=True,
+        )
+        client.force_login(admin_user)
         res = client.post(reverse('api_reset_factory'))
         self.assertEqual(res.status_code, 200)
         self.assertEqual(ToolCart.objects.count(), 28)
