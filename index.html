@@ -1008,7 +1008,7 @@
             <div class="text-goodyear-lightgray text-[11px]">
                 © 2026 The Goodyear Tire & Rubber Company. All Rights Reserved. Confidential and Proprietary.
             </div>
-            <a href="/admin/login/?next=/" class="text-slate-400 hover:text-goodyear-gold transition text-[10px] uppercase tracking-wider font-bold flex items-center gap-1.5" aria-label="Acceso administrativo">
+            <a href="#admin-login" onclick="openAuthModal(); return false;" class="text-slate-400 hover:text-goodyear-gold transition text-[10px] uppercase tracking-wider font-bold flex items-center gap-1.5" aria-label="Acceso administrativo">
                 <i class="fa-solid fa-lock text-[9px]"></i> Acceso administrativo
             </a>
         </div>
@@ -3653,14 +3653,44 @@
             btn.disabled = true;
             errorContainer.classList.add('hidden');
 
-            window.location.href = '/admin/login/?next=/';
+            try {
+                const response = await fetch('/api/ldap-login/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ username: usernameInput, password: passwordInput })
+                });
+                const ldapResult = await response.json();
+
+                if (!response.ok || ldapResult.status !== 'ok') {
+                    errorText.textContent = ldapResult.message || "No fue posible autenticar la cuenta corporativa.";
+                    errorContainer.classList.remove('hidden');
+                    return;
+                }
+
+                isLDAPAdminLoggedIn = true;
+                loggedInLDAPUser = ldapResult.username || usernameInput;
+                updateLDAPHeaderUI();
+                const adminTab = document.getElementById('tab-admin');
+                if (adminTab) adminTab.classList.remove('hidden');
+                closeAuthModal();
+                showToast("Sesión iniciada", "Acceso administrativo habilitado.");
+                switchTab('admin');
+            } catch (err) {
+                errorText.textContent = "No fue posible contactar el servicio LDAP.";
+                errorContainer.classList.remove('hidden');
+            } finally {
+                btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Iniciar sesión';
+                btn.disabled = false;
+            }
         }
 
         function logoutLDAPAdmin() {
             isLDAPAdminLoggedIn = false;
             loggedInLDAPUser = '';
-            window.location.href = '/admin/logout/';
+            fetch('/api/ldap-logout/', { method: 'POST' }).catch(() => {});
             updateLDAPHeaderUI();
+            const adminTab = document.getElementById('tab-admin');
+            if (adminTab) adminTab.classList.add('hidden');
             showToast("Sesión Cerrada", "Has salido del modo edición de carros.");
             if (currentDeviceMode === 'DESKTOP') {
                 switchTab('dashboard');

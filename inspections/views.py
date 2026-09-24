@@ -4,12 +4,15 @@ from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
 from django.db.models import Count, Q
 from django.conf import settings
+from django.contrib.auth import get_user_model, login, logout
 from .models import ToolCart, DrawerTool, Inspection5S, InspectionMissingItem
 from .utils import generate_cart_code_and_name
 import json
 import os
 import io
 import csv
+import urllib.error
+import urllib.request
 from functools import wraps
 
 try:
@@ -26,12 +29,13 @@ def staff_required_for_methods(*protected_methods):
         @wraps(view_func)
         def wrapped(request, *args, **kwargs):
             if request.method in protected_methods:
-                if not request.user.is_authenticated:
+                portal_admin = request.session.get('portal_admin_authenticated') is True
+                if not request.user.is_authenticated and not portal_admin:
                     return JsonResponse(
                         {"status": "error", "message": "Autenticación administrativa requerida."},
                         status=401
                     )
-                if not request.user.is_staff:
+                if not portal_admin and not request.user.is_staff:
                     return JsonResponse(
                         {"status": "error", "message": "No tiene permisos administrativos."},
                         status=403
@@ -58,10 +62,92 @@ def logo_view(request):
 
 def api_admin_status(request):
     """Indica si la sesión actual puede acceder a la administración del portal."""
+    portal_admin = request.session.get('portal_admin_authenticated') is True
     return JsonResponse({
-        "authenticated": request.user.is_authenticated,
-        "is_staff": request.user.is_staff,
+        "authenticated": portal_admin or request.user.is_authenticated,
+        "is_staff": portal_admin or request.user.is_staff,
     })
+
+
+@csrf_exempt
+def api_ldap_login(request):
+    """Validate corporate credentials through the LDAP gateway and create a Django session."""
+    if request.method == 'POST':
+        try:
+            body = json.loads(request.body.decode('utf-8'))
+            username = str(body.get('username', '')).strip().lower()
+            password = body.get('password', '')
+            if not username or not isinstance(password, str) or not password:
+                return JsonResponse(
+                    {"status": "error", "message": "Usuario y contraseña son obligatorios."},
+                    status=400
+                )
+
+            payload = json.dumps({"username": username, "password": password}).encode('utf-8')
+            ldap_request = urllib.request.Request(
+                settings.LDAP_AUTH_API_URL,
+                data=payload,
+                headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+                method='POST'
+            )
+            with urllib.request.urlopen(
+                ldap_request,
+                timeout=settings.LDAP_AUTH_API_TIMEOUT
+            ) as ldap_response:
+                ldap_result = json.loads(ldap_response.read().decode('utf-8'))
+
+            if ldap_result.get('status') != 'ok':
+                return JsonResponse(
+                    {"status": "error", "message": "Las credenciales corporativas no son válidas."},
+                    status=401
+                )
+            if ldap_result.get('is_admin') is not True:
+                return JsonResponse(
+                    {"status": "error", "message": "La cuenta no tiene privilegios administrativos."},
+                    status=403
+                )
+
+            User = get_user_model()
+            user, _ = User.objects.get_or_create(
+                username=username,
+                defaults={'is_staff': False, 'is_active': True}
+            )
+            user.is_staff = False
+            user.is_active = True
+            user.set_unusable_password()
+            user.save(update_fields=['is_staff', 'is_active', 'password'])
+            login(request, user)
+            request.session['portal_admin_authenticated'] = True
+            request.session['portal_admin_username'] = username
+
+            return JsonResponse({
+                "status": "ok",
+                "is_admin": True,
+                "username": username,
+                "full_name": ldap_result.get('full_name', ''),
+            })
+        except json.JSONDecodeError:
+            return JsonResponse({"status": "error", "message": "Solicitud JSON inválida."}, status=400)
+        except (urllib.error.URLError, TimeoutError, ValueError):
+            return JsonResponse(
+                {"status": "error", "message": "No fue posible contactar el servicio LDAP."},
+                status=502
+            )
+        except Exception:
+            return JsonResponse(
+                {"status": "error", "message": "No fue posible completar la autenticación."},
+                status=500
+            )
+
+    return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
+
+
+@csrf_exempt
+def api_ldap_logout(request):
+    request.session.pop('portal_admin_authenticated', None)
+    request.session.pop('portal_admin_username', None)
+    logout(request)
+    return JsonResponse({"status": "ok"})
 
 
 def api_drawer_structure(request):

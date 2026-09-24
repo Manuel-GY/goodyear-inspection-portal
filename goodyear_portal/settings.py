@@ -93,6 +93,11 @@ CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = bool(CORS_ALLOWED_ORIGINS)
+LDAP_AUTH_API_URL = os.environ.get(
+    'LDAP_AUTH_API_URL',
+    'http://10.107.194.110:8080/api/login-ldap/'
+)
+LDAP_AUTH_API_TIMEOUT = float(os.environ.get('LDAP_AUTH_API_TIMEOUT', '10'))
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = True

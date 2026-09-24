@@ -14,9 +14,10 @@ Sistema integral web y móvil de gestión, auditoría 5S y control centralizado 
 | **Módulo Admin en Portal** | Pestaña **Administrador** | Usuario staff de Django | Inicio de sesión del servidor |
 | **Django Admin Backoffice** | `http://localhost:8000/admin` | Usuario staff creado por el administrador | Configurada fuera del repositorio |
 
-El portal de inspección es público. Las operaciones de administración requieren una
-sesión de usuario Django con `is_staff=True`. No se almacenan credenciales en el
-repositorio; cree el primer usuario con `python manage.py createsuperuser`.
+El portal de inspección es público. Las operaciones de administración del portal
+requieren una sesión autenticada por la API LDAP corporativa. El usuario LDAP no
+necesita conocer Django ni acceder al backoffice `/admin/`. No se almacenan
+credenciales en el repositorio.
 
 ---
 
