@@ -3,11 +3,14 @@ from django.urls import reverse
 from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.models import User
+from django.test.utils import override_settings
 from inspections.models import ToolCart, DrawerTool, Inspection5S, InspectionMissingItem
 import json
 import io
 import csv
 import openpyxl
+from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 
 class ToolCartModelTests(TestCase):
@@ -185,6 +188,23 @@ class ApiRestEndpointsTests(TestCase):
         )
         self.assertEqual(response.status_code, 401)
         self.assertFalse(ToolCart.objects.filter(codigo_carro="CH-UNAUTHORIZED").exists())
+
+    def test_mutations_require_csrf_token(self):
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.get(reverse('index'))
+        response = csrf_client.post(
+            reverse('api_carts_list_create'),
+            data=json.dumps({
+                "codigo_carro": "CH-CSRF-01",
+                "nombre_carro": "No debe crearse",
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_ldap_logout_only_accepts_post(self):
+        response = self.client.get(reverse('api_ldap_logout'))
+        self.assertEqual(response.status_code, 405)
 
     def test_api_carts_get_and_post(self):
         """Verifica GET y POST en /api/carts/."""
@@ -368,6 +388,65 @@ class ApiRestEndpointsTests(TestCase):
         self.assertEqual(stats['missingAudits'], 1)
         self.assertEqual(stats['passRate'], 50)
         self.assertIn('Área Final Finish', stats['areas'])
+
+
+class PortalLDAPAuthenticationTests(TestCase):
+    def setUp(self):
+        self.client = Client(enforce_csrf_checks=True)
+        self.client.get(reverse('index'))
+
+    @override_settings(LDAP_AUTH_API_URL='https://ldap.example.test/api/login-ldap/')
+    @patch('inspections.views.urllib.request.urlopen')
+    def test_ldap_admin_login_creates_portal_session(self, urlopen):
+        ldap_response = Mock()
+        ldap_response.__enter__ = Mock(return_value=ldap_response)
+        ldap_response.__exit__ = Mock(return_value=False)
+        ldap_response.read.return_value = json.dumps({
+            'status': 'ok',
+            'is_admin': True,
+            'full_name': 'Administrador de Planta',
+        }).encode('utf-8')
+        urlopen.return_value = ldap_response
+
+        response = self.client.post(
+            reverse('api_ldap_login'),
+            data=json.dumps({'username': 'AA09876', 'password': 'not-stored'}),
+            content_type='application/json',
+            HTTP_X_CSRFTOKEN=self.client.cookies['csrftoken'].value,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['is_admin'])
+        status = self.client.get(reverse('api_admin_status'))
+        self.assertTrue(status.json()['is_staff'])
+
+    @override_settings(LDAP_AUTH_API_URL='https://ldap.example.test/api/login-ldap/')
+    @patch('inspections.views.urllib.request.urlopen')
+    def test_ldap_http_401_is_reported_as_invalid_credentials(self, urlopen):
+        urlopen.side_effect = HTTPError(
+            'https://ldap.example.test/api/login-ldap/',
+            401,
+            'Unauthorized',
+            {},
+            None,
+        )
+
+        response = self.client.post(
+            reverse('api_ldap_login'),
+            data=json.dumps({'username': 'AA09876', 'password': 'invalid'}),
+            content_type='application/json',
+            HTTP_X_CSRFTOKEN=self.client.cookies['csrftoken'].value,
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_ldap_login_requires_csrf_token(self):
+        response = self.client.post(
+            reverse('api_ldap_login'),
+            data=json.dumps({'username': 'AA09876', 'password': 'invalid'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
 
 
 from inspections.utils import generate_cart_code_and_name, parse_area

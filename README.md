@@ -28,14 +28,18 @@ credenciales en el repositorio.
    pip install -r requirements.txt
    ```
 
-2. **Configurar el entorno** (en producción no use los valores de desarrollo):
+2. **Configurar el entorno**:
    ```bash
    # PowerShell
    $env:DJANGO_SECRET_KEY = "genere-una-clave-larga-y-aleatoria"
-   $env:DJANGO_DEBUG = "False"
+   $env:DJANGO_DEBUG = "True" # Solo desarrollo local
    $env:DJANGO_ALLOWED_HOSTS = "servidor-goodyear,localhost"
    $env:CORS_ALLOWED_ORIGINS = "https://servidor-goodyear"
+   $env:LDAP_AUTH_API_URL = "https://servidor-ldap/api/login-ldap/"
    ```
+   En producción, use `DJANGO_DEBUG=False`, una clave secreta real y una URL
+   LDAP `https://`. La aplicación rechaza configuraciones de producción sin
+   clave secreta o con LDAP sobre HTTP.
 
 3. **Aplicar migraciones y cargar los 28 carros oficiales de Goodyear**:
    ```bash

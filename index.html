@@ -2551,6 +2551,17 @@
         }
 
         // ==================== INTEGRACIÓN API BACKEND DJANGO (SINCRONIZACIÓN CENTRAL) ====================
+        function getCookie(name) {
+            const cookies = document.cookie ? document.cookie.split(';') : [];
+            for (const cookie of cookies) {
+                const trimmed = cookie.trim();
+                if (trimmed.startsWith(`${name}=`)) {
+                    return decodeURIComponent(trimmed.slice(name.length + 1));
+                }
+            }
+            return '';
+        }
+
         async function apiCall(endpoint, method = 'GET', body = null) {
             try {
                 const options = {
@@ -2560,6 +2571,9 @@
                         'Accept': 'application/json'
                     }
                 };
+                if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+                    options.headers['X-CSRFToken'] = getCookie('csrftoken');
+                }
                 if (body) {
                     options.body = JSON.stringify(body);
                 }
@@ -3323,6 +3337,7 @@
             try {
                 const response = await fetch('/api/import-excel/', {
                     method: 'POST',
+                    headers: { 'X-CSRFToken': getCookie('csrftoken') },
                     body: formData
                 });
 
@@ -3656,7 +3671,11 @@
             try {
                 const response = await fetch('/api/ldap-login/', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
                     body: JSON.stringify({ username: usernameInput, password: passwordInput })
                 });
                 const ldapResult = await response.json();
@@ -3687,7 +3706,10 @@
         function logoutLDAPAdmin() {
             isLDAPAdminLoggedIn = false;
             loggedInLDAPUser = '';
-            fetch('/api/ldap-logout/', { method: 'POST' }).catch(() => {});
+            fetch('/api/ldap-logout/', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+            }).catch(() => {});
             updateLDAPHeaderUI();
             const adminTab = document.getElementById('tab-admin');
             if (adminTab) adminTab.classList.add('hidden');

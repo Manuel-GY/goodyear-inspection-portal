@@ -1,6 +1,6 @@
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse, HttpResponse, FileResponse
-from django.views.decorators.csrf import csrf_exempt
+from django.middleware.csrf import get_token
 from django.db import transaction
 from django.db.models import Count, Q
 from django.conf import settings
@@ -47,6 +47,7 @@ def staff_required_for_methods(*protected_methods):
 
 def index_view(request):
     """Renderiza el portal de inspección 5S."""
+    get_token(request)
     return render(request, 'index.html')
 
 
@@ -69,7 +70,6 @@ def api_admin_status(request):
     })
 
 
-@csrf_exempt
 def api_ldap_login(request):
     """Validate corporate credentials through the LDAP gateway and create a Django session."""
     if request.method == 'POST':
@@ -84,6 +84,11 @@ def api_ldap_login(request):
                 )
 
             payload = json.dumps({"username": username, "password": password}).encode('utf-8')
+            if not settings.LDAP_AUTH_API_URL:
+                return JsonResponse(
+                    {"status": "error", "message": "El servicio LDAP no está configurado."},
+                    status=503
+                )
             ldap_request = urllib.request.Request(
                 settings.LDAP_AUTH_API_URL,
                 data=payload,
@@ -128,6 +133,16 @@ def api_ldap_login(request):
             })
         except json.JSONDecodeError:
             return JsonResponse({"status": "error", "message": "Solicitud JSON inválida."}, status=400)
+        except urllib.error.HTTPError as error:
+            if 400 <= error.code < 500:
+                return JsonResponse(
+                    {"status": "error", "message": "Las credenciales corporativas no son válidas."},
+                    status=401
+                )
+            return JsonResponse(
+                {"status": "error", "message": "El servicio LDAP no está disponible."},
+                status=502
+            )
         except (urllib.error.URLError, TimeoutError, ValueError):
             return JsonResponse(
                 {"status": "error", "message": "No fue posible contactar el servicio LDAP."},
@@ -142,11 +157,14 @@ def api_ldap_login(request):
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
 
-@csrf_exempt
 def api_ldap_logout(request):
+    if request.method != 'POST':
+        return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
+    portal_admin = request.session.get('portal_admin_authenticated') is True
     request.session.pop('portal_admin_authenticated', None)
     request.session.pop('portal_admin_username', None)
-    logout(request)
+    if portal_admin:
+        logout(request)
     return JsonResponse({"status": "ok"})
 
 
@@ -156,7 +174,6 @@ def api_drawer_structure(request):
     return JsonResponse({"status": "success", "drawers": DRAWER_STRUCTURE})
 
 
-@csrf_exempt
 @staff_required_for_methods('POST')
 def api_carts_list_create(request):
     """
@@ -257,7 +274,6 @@ def api_carts_list_create(request):
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
 
-@csrf_exempt
 @staff_required_for_methods('PUT', 'PATCH', 'DELETE')
 def api_cart_detail_update_delete(request, cart_id):
     """
@@ -347,7 +363,6 @@ def api_cart_detail_update_delete(request, cart_id):
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
 
-@csrf_exempt
 @staff_required_for_methods('POST')
 def api_cart_drawer_tools(request, cart_id, drawer_num):
     """
@@ -407,7 +422,6 @@ def api_cart_drawer_tools(request, cart_id, drawer_num):
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
 
-@csrf_exempt
 def api_inspections_list_create(request):
     """
     GET: Listado histórico de inspecciones 5S realizadas (optimizado con select_related).
@@ -582,7 +596,6 @@ def api_dashboard_stats(request):
         return JsonResponse({"status": "error", "message": f"Error al calcular estadísticas: {str(e)}"}, status=500)
 
 
-@csrf_exempt
 @staff_required_for_methods('POST')
 def api_reset_factory(request):
     """
@@ -715,7 +728,6 @@ def api_download_excel_template(request):
         return JsonResponse({"status": "error", "message": f"Error al generar plantilla: {str(e)}"}, status=500)
 
 
-@csrf_exempt
 @staff_required_for_methods('POST')
 def api_import_excel(request):
     """

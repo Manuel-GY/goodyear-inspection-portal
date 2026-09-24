@@ -5,15 +5,17 @@ Sistema de Inspección y Manifiesto 5S de Carros de Herramientas Goodyear.
 
 from pathlib import Path
 import os
+import sys
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get(
-    'DJANGO_SECRET_KEY',
-    'development-only-change-this-goodyear-5s-key-2026-9f3c7a1b'
-)
-
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes')
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() in ('1', 'true', 'yes')
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    if DEBUG or 'test' in sys.argv:
+        SECRET_KEY = 'development-only-change-this-goodyear-5s-key-2026-9f3c7a1b'
+    else:
+        raise ValueError('DJANGO_SECRET_KEY must be configured when DJANGO_DEBUG is False.')
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -93,11 +95,11 @@ CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = bool(CORS_ALLOWED_ORIGINS)
-LDAP_AUTH_API_URL = os.environ.get(
-    'LDAP_AUTH_API_URL',
-    'http://10.107.194.110:8080/api/login-ldap/'
-)
+LDAP_AUTH_API_URL = os.environ.get('LDAP_AUTH_API_URL', '')
 LDAP_AUTH_API_TIMEOUT = float(os.environ.get('LDAP_AUTH_API_TIMEOUT', '10'))
+
+if not DEBUG and LDAP_AUTH_API_URL and not LDAP_AUTH_API_URL.lower().startswith('https://'):
+    raise ValueError('LDAP_AUTH_API_URL must use HTTPS when DJANGO_DEBUG is False.')
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
