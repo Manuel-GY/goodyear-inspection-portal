@@ -202,6 +202,44 @@ class ApiRestEndpointsTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_inspection_creation_requires_admin(self):
+        public_client = Client()
+        response = public_client.post(
+            reverse('api_inspections_list_create'),
+            data=json.dumps({"cartId": self.cart.codigo_carro}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(Inspection5S.objects.count(), 0)
+
+    def test_public_inspection_history_is_redacted_and_paginated(self):
+        Inspection5S.objects.create(
+            folio="INS-PRIVATE-01",
+            cart=self.cart,
+            codigo_carro=self.cart.codigo_carro,
+            nombre_auditor="Auditor",
+            responsable_carro_auditado="Responsable",
+            area=self.cart.area,
+            estado_dictamen="CONFORME 100%",
+            total_verificadas=3,
+            total_herramientas=3,
+            detalles_faltantes="Interno",
+            comentarios_auditor="Interno",
+            firma_auditor_base64="firma",
+            ldap_auditor_id="ldap-user",
+        )
+        public_client = Client()
+        response = public_client.get(
+            reverse('api_inspections_list_create'),
+            {"page": 1, "page_size": 1},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['pagination']['page_size'], 1)
+        self.assertNotIn('comments', data['inspections'][0])
+        self.assertNotIn('auditorSign', data['inspections'][0])
+        self.assertNotIn('ldapAuditor', data['inspections'][0])
+
     def test_ldap_logout_only_accepts_post(self):
         response = self.client.get(reverse('api_ldap_logout'))
         self.assertEqual(response.status_code, 405)

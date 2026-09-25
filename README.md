@@ -20,6 +20,12 @@ por defecto, configurable con `LDAP_AUTH_API_URL`). El usuario LDAP no necesita
 conocer Django ni acceder al backoffice `/admin/`. No se almacenan credenciales
 en el repositorio.
 
+El historial de inspecciones se entrega paginado y oculta firmas, comentarios,
+detalles de faltantes e identificadores LDAP a visitantes públicos. Registrar
+inspecciones y consultar el detalle completo requiere autenticación administrativa.
+Las cargas Excel/CSV están limitadas por tamaño y cantidad de filas mediante
+`IMPORT_MAX_FILE_SIZE` e `IMPORT_MAX_ROWS`.
+
 ---
 
 ## 🚀 Puesta en Marcha Rápida
@@ -90,7 +96,7 @@ El sistema cuenta con un motor adaptativo para tres perfiles de hardware en plan
 | `GET` / `POST` | `/api/carts/` | Listado de flota y creación de nuevos carros |
 | `GET` / `PUT` / `DELETE` | `/api/carts/<cart_id>/` | Detalle, edición y borrado de carro |
 | `POST` | `/api/carts/<cart_id>/drawers/<d>/tools/` | Guardado atómico de herramientas por gaveta (1 a 5) |
-| `GET` / `POST` | `/api/inspections/` | Historial de auditorías y registro de inspección 5S |
+| `GET` / `POST` | `/api/inspections/` | Historial paginado; el registro requiere autenticación administrativa |
 | `GET` | `/api/dashboard/stats/` | KPIs agregados y distribución por áreas |
 | `POST` | `/api/reset-factory/` | Restablecimiento de flota oficial a valores de fábrica |
 | `GET` | `/api/download-excel-template/` | Descarga de plantilla Excel `.xlsx` oficial Goodyear |

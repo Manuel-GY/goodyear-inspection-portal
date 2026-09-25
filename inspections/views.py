@@ -5,15 +5,19 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.conf import settings
 from django.contrib.auth import get_user_model, login, logout
+from django.core.paginator import EmptyPage, Paginator
 from .models import ToolCart, DrawerTool, Inspection5S, InspectionMissingItem
 from .utils import generate_cart_code_and_name
 import json
+import logging
 import os
 import io
 import csv
 import urllib.error
 import urllib.request
 from functools import wraps
+
+logger = logging.getLogger(__name__)
 
 try:
     import openpyxl
@@ -43,6 +47,39 @@ def staff_required_for_methods(*protected_methods):
             return view_func(request, *args, **kwargs)
         return wrapped
     return decorator
+
+
+def _pagination(request, default_size=50):
+    """Return a bounded paginator page number and size from query parameters."""
+    try:
+        page = max(1, int(request.GET.get('page', 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = min(
+            max(1, int(request.GET.get('page_size', default_size))),
+            getattr(settings, 'API_MAX_PAGE_SIZE', 100),
+        )
+    except (TypeError, ValueError):
+        page_size = default_size
+    return page, page_size
+
+
+def _generic_server_error(logger_name, exc):
+    logger.exception('%s: %s', logger_name, exc)
+    return JsonResponse(
+        {"status": "error", "message": "No fue posible completar la operación."},
+        status=500,
+    )
+
+
+def _bounded_text(value, field, max_length, required=False):
+    text = str(value or '').strip()
+    if required and not text:
+        raise ValueError(f"El campo '{field}' es obligatorio.")
+    if len(text) > max_length:
+        raise ValueError(f"El campo '{field}' supera el máximo permitido.")
+    return text
 
 
 def index_view(request):
@@ -182,7 +219,18 @@ def api_carts_list_create(request):
     """
     if request.method == 'GET':
         try:
-            carts = ToolCart.objects.all().order_by('codigo_carro')
+            page, page_size = _pagination(request)
+            paginator = Paginator(
+                ToolCart.objects.all().order_by('codigo_carro'),
+                page_size,
+            )
+            try:
+                carts = paginator.page(page)
+            except EmptyPage:
+                return JsonResponse(
+                    {"status": "error", "message": "Página fuera de rango."},
+                    status=404,
+                )
             data = {}
             for c in carts:
                 drawer_photos = {}
@@ -204,9 +252,18 @@ def api_carts_list_create(request):
                     "locationPhoto": c.foto_ubicacion_url,
                     "drawerPhotos": drawer_photos
                 }
-            return JsonResponse({"status": "success", "count": len(data), "carts": data})
+            return JsonResponse({
+                "status": "success",
+                "count": paginator.count,
+                "carts": data,
+                "pagination": {
+                    "page": carts.number,
+                    "page_size": page_size,
+                    "total_pages": paginator.num_pages,
+                },
+            })
         except Exception as e:
-            return JsonResponse({"status": "error", "message": f"Error al consultar carros: {str(e)}"}, status=500)
+            return _generic_server_error('Error al consultar carros', e)
 
     elif request.method == 'POST':
         try:
@@ -215,15 +272,12 @@ def api_carts_list_create(request):
             except (json.JSONDecodeError, UnicodeDecodeError):
                 return JsonResponse({"status": "error", "message": "Cuerpo JSON inválido o malformado."}, status=400)
 
-            cart_id = str(body.get('codigo_carro', '')).strip().upper()
-            name = str(body.get('nombre_carro', '')).strip()
+            cart_id = _bounded_text(body.get('codigo_carro'), 'codigo_carro', 50, required=True).upper()
+            name = _bounded_text(body.get('nombre_carro'), 'nombre_carro', 150, required=True)
             category = str(body.get('categoria', 'TURNO')).strip().upper()
-            area = str(body.get('area', 'Planta Goodyear')).strip()
-            supervisor = str(body.get('supervisor_responsable', 'Juanito Arias')).strip()
-            location = str(body.get('ubicacion_especifica', 'Bahía de Mantenimiento')).strip()
-
-            if not cart_id or not name:
-                return JsonResponse({"status": "error", "message": "Código y Nombre del carro son obligatorios."}, status=400)
+            area = _bounded_text(body.get('area', 'Planta Goodyear'), 'area', 150, required=True)
+            supervisor = _bounded_text(body.get('supervisor_responsable', 'Juanito Arias'), 'supervisor_responsable', 150)
+            location = _bounded_text(body.get('ubicacion_especifica', 'Bahía de Mantenimiento'), 'ubicacion_especifica', 200)
 
             valid_categories = ['TURNO', 'MECANICO', 'ELECTRICO', 'MECATRONICO']
             if category not in valid_categories:
@@ -268,8 +322,10 @@ def api_carts_list_create(request):
                 }
             }, status=201)
 
+        except ValueError as e:
+            return JsonResponse({"status": "error", "message": str(e)}, status=400)
         except Exception as e:
-            return JsonResponse({"status": "error", "message": f"Error al crear carro: {str(e)}"}, status=500)
+            return _generic_server_error('Error al crear carro', e)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
@@ -348,7 +404,7 @@ def api_cart_detail_update_delete(request, cart_id):
 
             return JsonResponse({"status": "success", "message": f"Carro {cart.codigo_carro} actualizado correctamente."})
         except Exception as e:
-            return JsonResponse({"status": "error", "message": f"Error al actualizar carro: {str(e)}"}, status=500)
+            return _generic_server_error('Error al actualizar carro', e)
 
     elif request.method == 'DELETE':
         try:
@@ -358,7 +414,7 @@ def api_cart_detail_update_delete(request, cart_id):
                 cart.delete()
             return JsonResponse({"status": "success", "message": f"Carro {cart_name} ({code}) eliminado correctamente."})
         except Exception as e:
-            return JsonResponse({"status": "error", "message": f"Error al eliminar carro: {str(e)}"}, status=500)
+            return _generic_server_error('Error al eliminar carro', e)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
@@ -417,11 +473,12 @@ def api_cart_drawer_tools(request, cart_id, drawer_num):
                 "estado_general": cart.estado_general
             })
         except Exception as e:
-            return JsonResponse({"status": "error", "message": f"Error al guardar herramientas: {str(e)}"}, status=500)
+            return _generic_server_error('Error al guardar herramientas', e)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
 
+@staff_required_for_methods('POST')
 def api_inspections_list_create(request):
     """
     GET: Listado histórico de inspecciones 5S realizadas (optimizado con select_related).
@@ -429,32 +486,60 @@ def api_inspections_list_create(request):
     """
     if request.method == 'GET':
         try:
-            inspections = Inspection5S.objects.select_related('cart').prefetch_related('missing_items').all().order_by('-fecha_inspeccion')
+            page, page_size = _pagination(request)
+            paginator = Paginator(
+                Inspection5S.objects.select_related('cart').all().order_by('-fecha_inspeccion'),
+                page_size,
+            )
+            try:
+                inspections = paginator.page(page)
+            except EmptyPage:
+                return JsonResponse(
+                    {"status": "error", "message": "Página fuera de rango."},
+                    status=404,
+                )
+            is_admin = (
+                request.session.get('portal_admin_authenticated') is True
+                or request.user.is_staff
+            )
             data = []
             for insp in inspections:
-                data.append({
+                item = {
                     "folio": insp.folio,
                     "date": insp.fecha_inspeccion.strftime('%d/%m/%Y %H:%M'),
                     "cartId": insp.codigo_carro,
                     "cartName": insp.cart.nombre_carro if insp.cart else insp.codigo_carro,
                     "cartArea": insp.area,
-                    "auditor": insp.nombre_auditor,
-                    "responsible": insp.responsable_carro_auditado,
-                    "supervisor": insp.supervisor_responsable,
                     "status": insp.estado_dictamen,
                     "totalChecked": insp.total_verificadas,
                     "totalTools": insp.total_herramientas,
                     "missingCount": max(0, insp.total_herramientas - insp.total_verificadas) if (insp.total_herramientas > insp.total_verificadas) else 0,
-                    "missingDetails": insp.detalles_faltantes,
-                    "comments": insp.comentarios_auditor,
-                    "auditorSign": insp.firma_auditor_base64,
-                    "respSign": insp.firma_responsable_base64,
-                    "ldapAuditor": insp.ldap_auditor_id,
-                    "ldapResp": insp.ldap_responsable_id
-                })
-            return JsonResponse({"status": "success", "count": len(data), "inspections": data})
+                }
+                if is_admin:
+                    item.update({
+                        "auditor": insp.nombre_auditor,
+                        "responsible": insp.responsable_carro_auditado,
+                        "supervisor": insp.supervisor_responsable,
+                        "missingDetails": insp.detalles_faltantes,
+                        "comments": insp.comentarios_auditor,
+                        "auditorSign": insp.firma_auditor_base64,
+                        "respSign": insp.firma_responsable_base64,
+                        "ldapAuditor": insp.ldap_auditor_id,
+                        "ldapResp": insp.ldap_responsable_id,
+                    })
+                data.append(item)
+            return JsonResponse({
+                "status": "success",
+                "count": paginator.count,
+                "inspections": data,
+                "pagination": {
+                    "page": inspections.number,
+                    "page_size": page_size,
+                    "total_pages": paginator.num_pages,
+                },
+            })
         except Exception as e:
-            return JsonResponse({"status": "error", "message": f"Error al obtener inspecciones: {str(e)}"}, status=500)
+            return _generic_server_error('Error al obtener inspecciones', e)
 
     elif request.method == 'POST':
         try:
@@ -463,38 +548,62 @@ def api_inspections_list_create(request):
             except (json.JSONDecodeError, UnicodeDecodeError):
                 return JsonResponse({"status": "error", "message": "Cuerpo JSON inválido o malformado."}, status=400)
 
-            cart_code = str(body.get('cartId', '')).strip().upper()
+            cart_code = _bounded_text(body.get('cartId'), 'cartId', 50, required=True).upper()
             cart = ToolCart.objects.filter(codigo_carro=cart_code).first()
+            if not cart:
+                return JsonResponse({"status": "error", "message": "Carro no encontrado."}, status=404)
 
             folio = body.get('folio')
             if not folio or not str(folio).strip():
                 from datetime import datetime
-                folio = f"INS-GY-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+                folio = f"INS-GY-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}"
             else:
-                folio = str(folio).strip()
+                folio = _bounded_text(folio, 'folio', 50)
 
-            auditor = str(body.get('auditor', 'Inspector Goodyear')).strip()
-            responsible = str(body.get('responsible', 'Mecánico de Turno')).strip()
-            supervisor = str(body.get('supervisor', cart.supervisor_responsable if cart else 'Juanito Arias')).strip()
-            area = str(body.get('cartArea', cart.area if cart else 'Planta Goodyear')).strip()
-            status = str(body.get('status', 'CONFORME 100%')).strip()
+            auditor = _bounded_text(body.get('auditor', 'Inspector Goodyear'), 'auditor', 150, required=True)
+            responsible = _bounded_text(body.get('responsible', 'Mecánico de Turno'), 'responsible', 150, required=True)
+            supervisor = _bounded_text(body.get('supervisor', cart.supervisor_responsable), 'supervisor', 150)
+            area = _bounded_text(body.get('cartArea', cart.area), 'cartArea', 150, required=True)
+            status = _bounded_text(body.get('status', 'CONFORME 100%'), 'status', 100, required=True)
 
             try:
                 total_checked = int(body.get('totalChecked', 0))
             except (ValueError, TypeError):
-                total_checked = 0
+                return JsonResponse({"status": "error", "message": "totalChecked debe ser un entero."}, status=400)
 
             try:
                 total_tools = int(body.get('totalTools', 0))
             except (ValueError, TypeError):
-                total_tools = 0
+                return JsonResponse({"status": "error", "message": "totalTools debe ser un entero."}, status=400)
+            if total_checked < 0 or total_tools < 0 or total_checked > total_tools:
+                return JsonResponse({"status": "error", "message": "Los totales de inspección no son válidos."}, status=400)
 
-            missing_details = str(body.get('missingDetails', '')).strip()
-            comments = str(body.get('comments', '')).strip()
+            missing_details = _bounded_text(body.get('missingDetails'), 'missingDetails', 5000)
+            comments = _bounded_text(body.get('comments'), 'comments', 5000)
             auditor_sign = body.get('auditorSign')
             resp_sign = body.get('respSign')
-            ldap_auditor = str(body.get('ldapAuditor', '')).strip()
-            ldap_resp = str(body.get('ldapResp', '')).strip()
+            for field, value in (('auditorSign', auditor_sign), ('respSign', resp_sign)):
+                if value is not None and (not isinstance(value, str) or len(value) > 500000):
+                    return JsonResponse({"status": "error", "message": f"{field} no es válido."}, status=400)
+            ldap_auditor = _bounded_text(body.get('ldapAuditor'), 'ldapAuditor', 50)
+            ldap_resp = _bounded_text(body.get('ldapResp'), 'ldapResp', 50)
+
+            missing_items = body.get('missingItemsList', [])
+            if not isinstance(missing_items, list) or len(missing_items) > 500:
+                return JsonResponse({"status": "error", "message": "missingItemsList no es válido."}, status=400)
+            missing_item_data = []
+            for item in missing_items:
+                if not isinstance(item, dict):
+                    return JsonResponse({"status": "error", "message": "Detalle de faltante inválido."}, status=400)
+                try:
+                    d_num = int(item.get('drawer', 1))
+                except (ValueError, TypeError):
+                    return JsonResponse({"status": "error", "message": "Gaveta inválida."}, status=400)
+                if d_num < 1 or d_num > 5:
+                    return JsonResponse({"status": "error", "message": "La gaveta debe estar entre 1 y 5."}, status=400)
+                t_name = _bounded_text(item.get('tool'), 'tool', 200)
+                if t_name:
+                    missing_item_data.append((d_num, t_name))
 
             with transaction.atomic():
                 insp = Inspection5S.objects.create(
@@ -516,27 +625,16 @@ def api_inspections_list_create(request):
                     ldap_responsable_id=ldap_resp
                 )
 
-                # Registrar faltantes si vienen desglosados
-                missing_items = body.get('missingItemsList', [])
-                if isinstance(missing_items, list) and missing_items:
-                    missing_objs = []
-                    for item in missing_items:
-                        if isinstance(item, dict):
-                            try:
-                                d_num = int(item.get('drawer', 1))
-                            except (ValueError, TypeError):
-                                d_num = 1
-                            t_name = str(item.get('tool', '')).strip()
-                            if t_name:
-                                missing_objs.append(
-                                    InspectionMissingItem(
-                                        inspection=insp,
-                                        numero_gaveta=d_num,
-                                        nombre_herramienta_faltante=t_name
-                                    )
-                                )
-                    if missing_objs:
-                        InspectionMissingItem.objects.bulk_create(missing_objs)
+                missing_objs = [
+                    InspectionMissingItem(
+                        inspection=insp,
+                        numero_gaveta=d_num,
+                        nombre_herramienta_faltante=t_name,
+                    )
+                    for d_num, t_name in missing_item_data
+                ]
+                if missing_objs:
+                    InspectionMissingItem.objects.bulk_create(missing_objs)
 
             return JsonResponse({
                 "status": "success",
@@ -544,8 +642,10 @@ def api_inspections_list_create(request):
                 "folio": folio
             }, status=201)
 
+        except ValueError as e:
+            return JsonResponse({"status": "error", "message": str(e)}, status=400)
         except Exception as e:
-            return JsonResponse({"status": "error", "message": f"Error al registrar inspección: {str(e)}"}, status=500)
+            return _generic_server_error('Error al registrar inspección', e)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
@@ -593,7 +693,7 @@ def api_dashboard_stats(request):
             "areas": areas
         })
     except Exception as e:
-        return JsonResponse({"status": "error", "message": f"Error al calcular estadísticas: {str(e)}"}, status=500)
+        return _generic_server_error('Error al calcular estadísticas', e)
 
 
 @staff_required_for_methods('POST')
@@ -613,7 +713,7 @@ def api_reset_factory(request):
                 "message": f"Base de datos restablecida al estándar oficial de fábrica Goodyear ({ToolCart.objects.count()} carros cargados)."
             })
         except Exception as e:
-            return JsonResponse({"status": "error", "message": f"Error al restablecer valores de fábrica: {str(e)}"}, status=500)
+            return _generic_server_error('Error al restablecer valores de fábrica', e)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)
 
@@ -725,7 +825,7 @@ def api_download_excel_template(request):
         response['Content-Disposition'] = 'attachment; filename="plantilla_carros_goodyear.xlsx"'
         return response
     except Exception as e:
-        return JsonResponse({"status": "error", "message": f"Error al generar plantilla: {str(e)}"}, status=500)
+        return _generic_server_error('Error al generar plantilla', e)
 
 
 @staff_required_for_methods('POST')
@@ -740,6 +840,9 @@ def api_import_excel(request):
 
         uploaded_file = request.FILES['file']
         file_name = uploaded_file.name.lower()
+        max_upload_size = getattr(settings, 'IMPORT_MAX_FILE_SIZE', 10 * 1024 * 1024)
+        if uploaded_file.size > max_upload_size:
+            return JsonResponse({"status": "error", "message": "El archivo supera el tamaño máximo permitido."}, status=400)
 
         try:
             if file_name.endswith('.xlsx'):
@@ -762,6 +865,9 @@ def api_import_excel(request):
                 data_rows = rows[1:]
             else:
                 return JsonResponse({"status": "error", "message": "Formato no compatible. Por favor suba un archivo .xlsx o .csv."}, status=400)
+
+            if len(data_rows) > getattr(settings, 'IMPORT_MAX_ROWS', 5000):
+                return JsonResponse({"status": "error", "message": "El archivo supera el número máximo de filas permitido."}, status=400)
 
             col_map = {}
             for idx, raw_col in enumerate(header):
@@ -870,7 +976,9 @@ def api_import_excel(request):
                 "total_carts_db": ToolCart.objects.count()
             })
 
+        except UnicodeDecodeError:
+            return JsonResponse({"status": "error", "message": "El archivo CSV debe usar codificación UTF-8."}, status=400)
         except Exception as e:
-            return JsonResponse({"status": "error", "message": f"Error procesando archivo: {str(e)}"}, status=500)
+            return _generic_server_error('Error procesando archivo', e)
 
     return JsonResponse({"status": "error", "message": "Método no permitido."}, status=405)

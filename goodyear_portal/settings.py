@@ -95,13 +95,18 @@ CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = bool(CORS_ALLOWED_ORIGINS)
+API_MAX_PAGE_SIZE = int(os.environ.get('API_MAX_PAGE_SIZE', '100'))
+IMPORT_MAX_ROWS = int(os.environ.get('IMPORT_MAX_ROWS', '5000'))
+IMPORT_MAX_FILE_SIZE = int(os.environ.get('IMPORT_MAX_FILE_SIZE', str(10 * 1024 * 1024)))
+DATA_UPLOAD_MAX_MEMORY_SIZE = IMPORT_MAX_FILE_SIZE
+FILE_UPLOAD_MAX_MEMORY_SIZE = IMPORT_MAX_FILE_SIZE
 LDAP_AUTH_API_URL = os.environ.get(
     'LDAP_AUTH_API_URL',
     'http://10.107.194.110:8080/api/login-ldap/'
 )
 LDAP_AUTH_API_TIMEOUT = float(os.environ.get('LDAP_AUTH_API_TIMEOUT', '10'))
 
-if not DEBUG:
+if not DEBUG and 'test' not in sys.argv:
     SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
@@ -110,5 +115,7 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
     SESSION_COOKIE_HTTPONLY = True
     CSRF_COOKIE_HTTPONLY = False
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'same-origin'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
